@@ -1,0 +1,60 @@
+### **Context**
+
+All submissions must align with one of the three Challenge Tracks below. Leveraging open data from the City of Toronto, these tracks guide submissions across diverse facets of urban life and community growth.
+
+Each track defines a theme of impact, not the scope of your idea – teams are free to build any solution using any of the open datasets linked above.
+
+**1. Economic Systems**
+
+**Focus:** Improving how money flows through the city across businesses, workers, and markets.
+
+**The Goal:** Build agentic systems that help individuals and organizations make better economic decisions, unlock opportunities, or optimize costs.
+
+**2. Public Services**
+
+**Focus:** Enhancing how people access and interact with city services and resources.
+
+**The Goal:** Use data to build tools that simplify navigation of public systems, making essential services more accessible, efficient, and user-friendly.
+
+**3. Urban Operations**
+
+**Focus:** Optimizing how Toronto runs, from large-scale infrastructure to everyday city life.
+
+**The Goal:** Develop systems that improve how the city functions behind the scenes and in real time.
+
+## ### Judging Criteria
+
+**Philosophy**
+
+We are judging **Systems Engineering**. A winning project isn't just a slide deck or a simple API wrapper; it is a functioning system that ingests raw data, processes it locally using the DGX Spark, and produces a valuable result.
+
+**The Scoring Breakdown (100 Points Total)**
+
+### **1. Technical Execution & Completeness (30 Points)**
+
+*Did they actually build a working, complex system?*
+
+- **15 pts - Completeness:** Does the system successfully complete the full data workflow without crashing?
+- **15 pts - Technical Depth:** Is there significant engineering "under the hood"? Did they build a complex pipeline (e.g., Simulation, RAG, Fine-Tuning, or Custom Logic) rather than just a simple static dashboard or basic API wrapper?
+
+### **2. NVIDIA Ecosystem & Spark Utility (30 Points)**
+
+*Did they leverage the unique hardware and software provided?*
+
+- **15 pts - The Stack:** Did they use at least one major NVIDIA library/tool? (e.g., **NIMs**, **RAPIDS**, **cuOpt**, **Modulus**, **NeMo Models**). *Note: Merely calling GPT-4 via API gets 0 points here.*
+- **15 pts - The "Spark Story":** Can they articulate **why** this runs better on a DGX Spark?
+    - *Examples:* "We used the 128GB Unified Memory to hold the video buffer and the LLM context simultaneously" or "We ran inference locally to ensure privacy/latency."
+
+### **3. Value & Impact (20 Points)**
+
+*Is the solution actually useful?*
+
+- **10 pts - Insight Quality:** Is the insight non-obvious and valuable? (e.g., "Traffic jams happen at 5 PM" is obvious. "Rain causes specific stalls on this specific ramp" is valuable).
+- **10 pts - Usability:** Could a real City Planner, or Factory Foreman actually use this tool to make a decision tomorrow?
+
+### **4. Innovation & Execution (20 Points)**
+
+*Did they push the boundaries?*
+
+- **10 pts - Creativity:** Did they combine data or models in a novel way? (e.g., Using vision models to "read" traffic maps).
+- **10 pts - Performance:** Did they optimize the system for speed or scale? (e.g., "We optimized the simulation to run at 50x real-time speed").

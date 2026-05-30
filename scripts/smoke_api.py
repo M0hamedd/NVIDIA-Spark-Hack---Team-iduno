@@ -35,35 +35,7 @@ def main() -> int:
 
         scan_payload = {"refresh": bool(args.refresh)}
         if not args.refresh:
-            scan_payload["business_profile"] = {
-                "name": "GTA Mechanical & Controls Ltd.",
-                "business_type": "commercial HVAC, building automation, and mechanical contractor",
-                "base_location": "Toronto, Ontario",
-                "team_size": 12,
-                "max_contract_value": 350000,
-                "max_sites_per_day": 5,
-                "service_area": "Toronto",
-                "skills": [
-                    "HVAC maintenance",
-                    "building automation systems/BAS controls",
-                    "boiler service",
-                    "chiller service",
-                    "emergency repairs",
-                    "preventative maintenance",
-                    "energy retrofit support",
-                    "municipal/public facility service",
-                    "mechanical repairs",
-                ],
-                "ready_documents": ["insurance", "WSIB", "HST", "references", "technician certifications"],
-                "missing_capabilities": [
-                    "major design/build construction",
-                    "large construction bonding",
-                    "kitchen equipment",
-                    "road paving",
-                    "pure software implementation",
-                    "food supply",
-                ],
-            }
+            scan_payload["profile_id"] = "road_civil_infrastructure"
         scan = smoke.post("/api/scan", scan_payload)
         require(scan.get("business_profile"), "/api/scan missing business_profile")
         require(scan.get("metrics"), "/api/scan missing metrics")

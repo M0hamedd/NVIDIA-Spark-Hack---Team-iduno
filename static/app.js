@@ -1,125 +1,23 @@
-const SUPPORTED_PROFILES = {
-  design_engineering: {
-    profile_id: "design_engineering",
-    label: "Design & Engineering",
-    name: "CivicWorks Design Studio",
-    business_type: "municipal design, engineering, planning, and contract administration firm",
-    base_location: "Toronto, GTA",
-    team_size: 15,
-    max_contract_value: 900000,
-    max_sites_per_day: 3,
-    active_pursuit_count: 2,
-    max_active_pursuits: 4,
-    service_area: "Toronto",
-    skills: [
-      "professional consulting engineering services",
-      "preliminary design",
-      "detailed design",
-      "construction contract administration",
-      "construction inspection",
-      "municipal planning studies",
-      "park and public realm design",
-      "accessibility upgrades",
-      "facility condition assessments",
-      "geotechnical coordination",
-      "environmental assessment support"
-    ],
-    ready_documents: ["insurance", "WSIB", "HST", "professional references", "licensed engineer roster"],
-    missing_capabilities: [
-      "construction services",
-      "general contractor",
-      "road paving",
-      "pavement markings",
-      "supply and custom application",
-      "landscaping construction",
-      "locksmith",
-      "door hardware",
-      "kitchen smallwares",
-      "HVAC maintenance",
-      "food supply",
-      "software implementation"
-    ],
-    response_days_available: 14
-  },
-  parks_landscape: {
-    profile_id: "parks_landscape",
-    label: "Parks & Landscape",
-    name: "Greenline Parks & Landscape Ltd.",
-    business_type: "parks, playground, landscaping, arborist, and public realm contractor",
-    base_location: "Toronto, GTA",
-    team_size: 16,
-    max_contract_value: 650000,
-    max_sites_per_day: 6,
-    active_pursuit_count: 1,
-    max_active_pursuits: 3,
-    service_area: "Toronto",
-    skills: [
-      "park improvements",
-      "playground installation",
-      "splash pad repairs",
-      "landscaping",
-      "tree and arborist services",
-      "trail repairs",
-      "sports field maintenance",
-      "topsoil supply",
-      "planting",
-      "site furnishings",
-      "fencing",
-      "public realm maintenance"
-    ],
-    ready_documents: ["insurance", "WSIB", "HST", "references", "arborist certificates"],
-    missing_capabilities: [
-      "professional engineering services",
-      "architectural design",
-      "major road construction",
-      "watermain replacement",
-      "sewer rehabilitation",
-      "software implementation",
-      "food supply"
-    ],
-    response_days_available: 12
-  },
-  building_mechanical: {
-    profile_id: "building_mechanical",
-    label: "Building & Mechanical",
-    name: "GTA Mechanical & Building Services Ltd.",
-    business_type: "municipal building maintenance, HVAC, plumbing, doors, washrooms, and mechanical services contractor",
-    base_location: "Toronto, GTA",
-    team_size: 18,
-    max_contract_value: 750000,
-    max_sites_per_day: 8,
-    active_pursuit_count: 2,
-    max_active_pursuits: 3,
-    service_area: "Toronto",
-    skills: [
-      "HVAC maintenance",
-      "building automation systems",
-      "BAS controls",
-      "boiler service",
-      "chiller service",
-      "plumbing repairs",
-      "door hardware services",
-      "washroom repairs",
-      "preventative maintenance",
-      "emergency repair",
-      "municipal facility service",
-      "small building repairs"
-    ],
-    ready_documents: ["insurance", "WSIB", "HST", "references", "technician certifications"],
-    missing_capabilities: [
-      "road paving",
-      "major civil construction",
-      "pure software implementation",
-      "food supply",
-      "legal services",
-      "major design/build construction"
-    ],
-    response_days_available: 12
-  }
-};
+const DEMO_PROFILE_ORDER = [
+  "road_civil_infrastructure",
+  "parks_landscape",
+  "professional_engineering_design"
+];
 
-const DEFAULT_PROFILE_ID = "design_engineering";
-const DEFAULT_PROFILE = SUPPORTED_PROFILES[DEFAULT_PROFILE_ID];
+const DEFAULT_PROFILE_ID = DEMO_PROFILE_ORDER[0];
+
+const LOADING_PROFILE = {
+  profile_id: "",
+  label: "Loading profiles",
+  name: "Loading supported profiles",
+  business_type: "Waiting for /api/health",
+  base_location: "Toronto",
+  skills: [],
+  ready_documents: [],
+  top_divisions: [],
+  good_fit_examples: [],
+  bad_fit_examples: []
+};
 
 const PRIORITY_LABELS = {
   best_win_chance: "Best Win Chance",
@@ -129,6 +27,7 @@ const PRIORITY_LABELS = {
 
 const state = {
   health: null,
+  supportedProfiles: [],
   scan: null,
   selectedOpportunityId: "",
   activeView: "owner",
@@ -142,6 +41,8 @@ document.addEventListener("DOMContentLoaded", () => {
   renderProfileSelector();
   renderProfile(currentProfile());
   bindEvents();
+  resetWorkspace("Loading supported profiles from /api/health");
+  setBusy(false);
   checkHealth();
 });
 
@@ -151,14 +52,17 @@ function bindEvents() {
   $("approveButton").addEventListener("click", approveDraft);
   $("ownerTab").addEventListener("click", () => setView("owner"));
   $("evidenceTab").addEventListener("click", () => setView("evidence"));
-  document.querySelectorAll('input[name="supportedProfile"]').forEach((input) => {
-    input.addEventListener("change", () => {
-      state.selectedProfileId = getSelectedProfileId();
+  $("profileOptions").addEventListener("change", (event) => {
+    const input = event.target;
+    if (input && input.matches('input[name="supportedProfile"]')) {
+      state.selectedProfileId = input.value;
       state.selectedOpportunityId = "";
       state.scan = null;
-      renderProfile(currentProfile());
-      resetWorkspace(`${currentProfile().label} selected`);
-    });
+      const profile = currentProfile();
+      renderProfile(profile);
+      resetWorkspace(`${profileLabel(profile)} selected. Run a fresh scan for this persona.`);
+      showToast(`${profileLabel(profile)} selected. Run a fresh scan.`);
+    }
   });
   document.querySelectorAll('input[name="priorityMode"]').forEach((input) => {
     input.addEventListener("change", () => {
@@ -174,25 +78,42 @@ async function checkHealth() {
   try {
     const health = await apiGet("/api/health");
     state.health = health;
+    state.supportedProfiles = supportedProfilesFromHealth(health);
+    state.selectedProfileId = selectProfileId(state.selectedProfileId);
+    renderProfileSelector();
+    renderProfile(currentProfile());
     $("healthStatus").textContent = "System online";
     $("healthStatus").className = "status-pill ok";
     $("gpuStatus").textContent = `DGX Spark: ${formatStatus(health.gpu)}`;
     $("nemotronStatus").textContent = `Nemotron: ${formatStatus(health.nemotron)}`;
+    setBusy(false);
+    if (!state.supportedProfiles.length) {
+      showToast("Health returned no supported demo profiles.");
+    }
   } catch (error) {
     $("healthStatus").textContent = "Backend unavailable";
     $("healthStatus").className = "status-pill error";
     $("gpuStatus").textContent = "DGX Spark: unknown";
     $("nemotronStatus").textContent = "Nemotron: unknown";
+    state.supportedProfiles = [];
+    renderProfileSelector();
+    renderProfile(currentProfile());
+    setBusy(false);
     showToast(error.message);
   }
 }
 
 async function runScan(refresh) {
+  const profile = currentProfile();
+  if (!profile.profile_id) {
+    showToast("Supported profiles are still loading from /api/health.");
+    return;
+  }
   setBusy(true, "Scanning live procurement data");
   try {
     const result = await apiPost("/api/scan", {
-      profile_id: getSelectedProfileId(),
-      business_profile: currentProfile(),
+      profile_id: profile.profile_id,
+      business_profile: profile,
       priority_mode: getPriorityMode(),
       refresh
     });
@@ -205,11 +126,16 @@ async function runScan(refresh) {
 }
 
 async function runSimulation() {
+  const profile = currentProfile();
+  if (!profile.profile_id) {
+    showToast("Supported profiles are still loading from /api/health.");
+    return;
+  }
   setBusy(true, "Simulating next monitoring day");
   try {
     const result = await apiPost("/api/simulate", {
-      profile_id: getSelectedProfileId(),
-      business_profile: currentProfile(),
+      profile_id: profile.profile_id,
+      business_profile: profile,
       priority_mode: getPriorityMode(),
       days: 1
     });
@@ -229,9 +155,10 @@ async function approveDraft() {
 
   setBusy(true, "Preparing approval packet");
   try {
+    const profile = currentProfile();
     const result = await apiPost("/api/approve", {
-      profile_id: getSelectedProfileId(),
-      business_profile: currentProfile(),
+      profile_id: profile.profile_id,
+      business_profile: profile,
       approved: true,
       opportunity_id: state.selectedOpportunityId
     });
@@ -247,12 +174,15 @@ async function approveDraft() {
 
 function ingestResult(result, message) {
   state.scan = result;
-  state.selectedProfileId = (result.business_profile && result.business_profile.profile_id) || state.selectedProfileId;
+  state.selectedProfileId = selectProfileId(
+    (result.business_profile && result.business_profile.profile_id) || state.selectedProfileId
+  );
   const top = result.top_opportunities || [];
   const watch = result.watchlist || [];
   const selected = top[0] || watch[0] || null;
   state.selectedOpportunityId = selected ? getOpportunityId(selected) : "";
 
+  renderProfileSelector();
   renderProfile(result.business_profile || currentProfile());
   renderOwner(result);
   renderEvidence(result);
@@ -265,24 +195,31 @@ function renderProfileSelector() {
   if (!container) {
     return;
   }
-  container.innerHTML = Object.values(SUPPORTED_PROFILES).map((profile) => `
+  const profiles = state.supportedProfiles;
+  if (!profiles.length) {
+    container.innerHTML = "<p class=\"profile-loading\">Loading supported profiles from /api/health...</p>";
+    return;
+  }
+  container.innerHTML = profiles.map((profile) => `
     <label>
       <input type="radio" name="supportedProfile" value="${escapeHtml(profile.profile_id)}" ${profile.profile_id === state.selectedProfileId ? "checked" : ""}>
-      <span>${escapeHtml(profile.label)}</span>
+      <span>${escapeHtml(profileLabel(profile))}</span>
     </label>
   `).join("");
 }
 
 function renderProfile(profile) {
-  const fallback = profileById(profile.profile_id || state.selectedProfileId);
-  $("profileName").textContent = profile.name || fallback.name;
-  $("profileType").textContent = titleCase(profile.business_type || fallback.business_type);
-  $("profileBase").textContent = profile.base_location || fallback.base_location;
-  $("profileTeam").textContent = `${profile.team_size || fallback.team_size} people`;
-  $("profileCapacity").textContent = `${profile.max_sites_per_day || fallback.max_sites_per_day} city sites/day, up to ${formatMoney(profile.max_contract_value || fallback.max_contract_value)}`;
-  $("profilePursuits").textContent = `${profile.active_pursuit_count ?? fallback.active_pursuit_count} active, limit ${profile.max_active_pursuits ?? fallback.max_active_pursuits}`;
-  renderTags($("profileSkills"), profile.skills || fallback.skills);
-  renderTags($("profileDocs"), profile.ready_documents || fallback.ready_documents);
+  const active = profile && profile.profile_id ? profileWithSupportedEvidence(profile) : currentProfile();
+  $("profileName").textContent = active.name || profileLabel(active);
+  $("profileType").textContent = titleCase(active.business_type || "Not listed");
+  $("profileBase").textContent = active.base_location || active.service_area || "Not listed";
+  $("profileTeam").textContent = active.team_size ? `${active.team_size} people` : "Not listed";
+  $("profileCapacity").textContent = profileCapacityText(active);
+  $("profilePursuits").textContent = profilePursuitsText(active);
+  renderTags($("profileSkills"), active.skills || []);
+  renderTags($("profileDocs"), active.ready_documents || []);
+  renderProfileEvidence(active);
+  renderActiveProfileEvidence(active);
 }
 
 function resetWorkspace(message) {
@@ -635,8 +572,9 @@ function setView(view) {
 }
 
 function setBusy(isBusy, message = "") {
-  $("scanButton").disabled = isBusy;
-  $("simulateButton").disabled = isBusy;
+  const canRun = hasActiveProfile();
+  $("scanButton").disabled = isBusy || !canRun;
+  $("simulateButton").disabled = isBusy || !canRun;
   $("approveButton").disabled = isBusy || !state.selectedOpportunityId;
   if (isBusy && message) {
     showToast(message);
@@ -669,6 +607,13 @@ function renderTags(container, items) {
   container.innerHTML = (items || [])
     .map((item) => `<span class="tag">${escapeHtml(String(item))}</span>`)
     .join("");
+}
+
+function renderEvidenceTags(container, items) {
+  const safeItems = firstItems(items || [], 6);
+  container.innerHTML = safeItems.length
+    ? safeItems.map((item) => `<span class="tag">${escapeHtml(String(item))}</span>`).join("")
+    : "<span class=\"tag muted-tag\">Not listed</span>";
 }
 
 function renderList(items) {
@@ -739,11 +684,117 @@ function getSelectedProfileId() {
 }
 
 function currentProfile() {
-  return profileById(getSelectedProfileId());
+  return profileById(getSelectedProfileId()) || state.supportedProfiles[0] || LOADING_PROFILE;
 }
 
 function profileById(profileId) {
-  return SUPPORTED_PROFILES[profileId] || DEFAULT_PROFILE;
+  return state.supportedProfiles.find((profile) => profile.profile_id === profileId) || null;
+}
+
+function profileWithSupportedEvidence(profile) {
+  const supported = profileById(profile.profile_id);
+  return supported ? { ...supported, ...profile } : profile;
+}
+
+function hasActiveProfile() {
+  return Boolean(currentProfile().profile_id);
+}
+
+function supportedProfilesFromHealth(health) {
+  const profiles = Array.isArray(health && health.supported_profiles)
+    ? health.supported_profiles.filter((profile) => profile && profile.profile_id)
+    : [];
+  const byId = new Map(profiles.map((profile) => [profile.profile_id, profile]));
+  const orderedDemoProfiles = DEMO_PROFILE_ORDER
+    .map((profileId) => byId.get(profileId))
+    .filter(Boolean);
+  if (orderedDemoProfiles.length) {
+    return orderedDemoProfiles;
+  }
+  return profiles.filter((profile) => profile.profile_id !== "building_mechanical");
+}
+
+function selectProfileId(candidateId) {
+  if (profileById(candidateId)) {
+    return candidateId;
+  }
+  if (profileById(DEFAULT_PROFILE_ID)) {
+    return DEFAULT_PROFILE_ID;
+  }
+  return state.supportedProfiles[0] ? state.supportedProfiles[0].profile_id : "";
+}
+
+function profileLabel(profile) {
+  return profile.label || profile.name || titleCase(humanizeToken(profile.profile_id)) || "Supported profile";
+}
+
+function profileCapacityText(profile) {
+  const parts = [];
+  if (profile.max_sites_per_day) {
+    parts.push(`${profile.max_sites_per_day} city sites/day`);
+  }
+  if (profile.max_contract_value) {
+    parts.push(`up to ${formatMoney(profile.max_contract_value)}`);
+  }
+  return parts.length ? parts.join(", ") : "Not listed";
+}
+
+function profilePursuitsText(profile) {
+  const active = profile.active_pursuit_count;
+  const limit = profile.max_active_pursuits;
+  if (active !== undefined && active !== null && limit !== undefined && limit !== null) {
+    return `${active} active, limit ${limit}`;
+  }
+  return "Not listed";
+}
+
+function renderProfileEvidence(profile) {
+  const evidence = $("profileEvidence");
+  const divisions = $("profileDivisions");
+  const goodFit = $("profileGoodFit");
+  const badFit = $("profileBadFit");
+  if (!evidence || !divisions || !goodFit || !badFit) {
+    return;
+  }
+
+  evidence.innerHTML = `
+    <div>
+      <dt>Lane Basis</dt>
+      <dd>${escapeHtml(profile.lane_basis || "Waiting for backend lane evidence")}</dd>
+    </div>
+    <div>
+      <dt>2026 Solicitation Hits</dt>
+      <dd>${profile.ytd_solicitation_hits === undefined ? "Not listed" : number(profile.ytd_solicitation_hits)}</dd>
+    </div>
+    <div>
+      <dt>Exclusive Best-Fit Hits</dt>
+      <dd>${profile.exclusive_best_fit_hits === undefined ? "Not listed" : number(profile.exclusive_best_fit_hits)}</dd>
+    </div>
+  `;
+  renderEvidenceTags(divisions, profile.top_divisions || []);
+  renderEvidenceTags(goodFit, profile.good_fit_examples || []);
+  renderEvidenceTags(badFit, profile.bad_fit_examples || []);
+}
+
+function renderActiveProfileEvidence(profile) {
+  const container = $("activeProfileEvidence");
+  if (!container) {
+    return;
+  }
+  const profileName = profileLabel(profile);
+  const divisions = firstItems(profile.top_divisions || [], 4);
+  container.innerHTML = `
+    <div>
+      <p class="eyebrow">Active Demo Persona</p>
+      <h3>${escapeHtml(profileName)}</h3>
+      <p>Based on 2026 Toronto solicitation patterns: ${escapeHtml(profile.lane_basis || "lane evidence loads from /api/health")}.</p>
+    </div>
+    <div class="active-profile-stats">
+      <span><strong>${profile.ytd_solicitation_hits === undefined ? "0" : number(profile.ytd_solicitation_hits)}</strong> 2026 hits</span>
+      <span><strong>${profile.exclusive_best_fit_hits === undefined ? "0" : number(profile.exclusive_best_fit_hits)}</strong> exclusive best-fit</span>
+      <span>${escapeHtml(divisions.length ? divisions.join(", ") : "Top divisions pending")}</span>
+    </div>
+  `;
 }
 
 function findSelectedOpportunity() {

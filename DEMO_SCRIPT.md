@@ -13,19 +13,22 @@ Narration:
 Click:
 
 - Open the app.
-- Point to the default business profile: **GTA Mechanical & Controls Ltd.**.
+- Point to the default business profile: **Road/Civil Infrastructure Contractor**.
+- Show that the profile switcher also includes **Parks/Landscape Contractor** and **Professional Engineering/Design Firm**.
 
-## 0:25-0:55 - Business Profile
+## 0:25-0:55 - Data-Backed Profile Switcher
 
 Narration:
 
-> Our demo business is a Toronto-area HVAC and building automation contractor. They handle preventative maintenance, BAS controls, boiler and chiller service, emergency repairs, and energy retrofit support for schools, libraries, recreation centers, and municipal facilities.
+> The demo is not built around one hand-picked company. We found three recurring 2026 Toronto procurement lanes and turned them into switchable business profiles: road and civil infrastructure, parks and landscape work, and professional engineering or design services. The counts beside each profile show the dataset basis: 45 and 29 for road/civil, 42 and 29 for parks/landscape, and 23 and 14 for engineering/design.
 
 Click:
 
-- Show profile details.
-- Highlight readiness: insurance, WSIB, HST, references.
-- Highlight limits: no road paving, legal services, pure software, food supply, landscaping, or oversized design/build construction.
+- Show the three profile options.
+- Highlight that the user can switch lanes during the demo and rerun the scan.
+- For road/civil, highlight fit signals like road rehabilitation, sidewalks, sewer/stormwater, traffic control, and municipal construction capacity.
+- For parks/landscape, highlight park renewal, planting, turf, trails, playground-adjacent site work, and seasonal maintenance.
+- For engineering/design, highlight professional services, design, studies, inspections, contract administration, and licensed engineering requirements.
 
 ## 0:55-1:35 - Live Scan
 
@@ -57,8 +60,8 @@ Click:
 
 - Open the rejection breakdown.
 - Point to examples:
-  - `Skip`: wrong service category
-  - `Skip`: too large or outside scope for the contractor
+  - `Skip`: wrong lane for the selected profile
+  - `Skip`: too large or outside scope for the selected business
   - `Review`: relevant work, but capacity or credential gap
   - `Monitor`: relevant but not ready to act on
 

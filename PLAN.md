@@ -29,17 +29,19 @@ Their pain:
 - Good opportunities can appear and close quickly.
 - Owners need a bid/no-bid decision, not a long chat response.
 
-## Demo Business
+## Demo Profiles
 
-Use a commercial HVAC and building automation contractor as the primary demo business.
+Use three data-backed 2026 YTD Toronto procurement lanes as switchable demo profiles.
 
-`GTA Mechanical & Controls Ltd.` is a Toronto-area contractor specializing in municipal and commercial building systems.
+- **Road/Civil Infrastructure Contractor:** 45 multi-label solicitation hits; 29 exclusive best-fit hits.
+- **Parks/Landscape Contractor:** 42 multi-label solicitation hits; 29 exclusive best-fit hits.
+- **Professional Engineering/Design Firm:** 23 multi-label solicitation hits; 14 exclusive best-fit hits.
 
-- **Services:** HVAC maintenance, building automation systems, boiler and chiller service, emergency repairs, preventative maintenance, energy retrofit support.
-- **Strengths:** Certified technicians, 24/7 service, experience with schools, libraries, recreation centers, and municipal facilities.
-- **Good-fit contracts:** Facilities maintenance, HVAC service, BAS controls, mechanical repairs, public building retrofits.
-- **Bad-fit contracts:** Road paving, legal services, pure software, landscaping, food supply, major design/build construction.
-- **Why this demo works:** The system can show intelligent acceptance and rejection because the matches are specific, practical, and easy for judges to understand.
+- **Road/civil good fits:** road rehabilitation, sidewalks, culverts, sewer/stormwater, traffic control, municipal construction coordination.
+- **Parks/landscape good fits:** park renewal, planting, turf, trails, site restoration, landscape maintenance, playground-adjacent civil/site work.
+- **Engineering/design good fits:** professional engineering, design studies, inspections, contract administration, feasibility studies, design services.
+- **Bad-fit examples:** pure software, legal services, food supply, wrong-lane construction, professional-only work for a contractor profile, and construction-only work for an engineering/design profile.
+- **Why this demo works:** the user can switch between common Toronto procurement lanes and see the same bid intelligence engine adapt instead of watching one hand-picked profile.
 
 ## Product Promise
 
@@ -120,7 +122,7 @@ Target extracted fields:
 
 This extraction should feed custom logic, not replace it. A good judge-facing example is:
 
-> "The word maintenance appeared in this solicitation, but the extracted requirement was road maintenance, not HVAC maintenance, so the engine skipped it."
+> "The word design appeared in this solicitation, but the extracted requirement was landscape planting design, not licensed civil engineering design services, so the engineering/design profile skipped it."
 
 False-positive rejection is part of the product, not a side effect. The system should explicitly show misleading matches it ignored.
 
@@ -146,7 +148,7 @@ Use that context to produce smart warnings:
 
 Example judge/demo moment:
 
-> "This HVAC contract is a strong fit, but GTA Mechanical is already pursuing three bids this week. Because the deadline is tight and the team is limited, the system marks this as Review instead of Pursue."
+> "This road rehabilitation contract is a strong fit, but the road/civil contractor is already pursuing three bids this week. Because the deadline is tight and the team is limited, the system marks this as Review instead of Pursue."
 
 This feature is especially important for small businesses. It proves the system is not blindly recommending every relevant contract; it is thinking about whether the owner can realistically chase and deliver the work.
 
@@ -190,7 +192,7 @@ Show a pipeline with each stage lighting up as a contract is processed:
 Each stage should output business-readable evidence:
 
 - **Parsed:** Contract type, buyer, deadline, procurement status.
-- **Requirements Found:** HVAC maintenance, BAS controls, emergency response, municipal facility service, required documents, and risk flags.
+- **Requirements Found:** lane-specific scope such as road rehabilitation, park renewal, or engineering/design services, required documents, and risk flags.
 - **Profile Match:** Core services align with the business profile.
 - **Award History:** Similar facilities contracts retrieved from past awards.
 - **Risk Filter:** No obvious certification, deadline, bonding, or capacity blockers.
@@ -244,13 +246,14 @@ The next implementation focus is **AI proof first**. The five-minute demo should
 
 The demo spine:
 
-1. Load `GTA Mechanical & Controls Ltd.`
-2. Run a live Toronto Open Data scan, automatically falling back to cached real records if live fetch fails.
-3. Show records scanned, awards compared, and rejected opportunities.
-4. Open one `Pursue` or `Review` opportunity.
-5. Show extracted requirements, similar historical awards, false-positive rejection, and capacity warning evidence.
-6. Show Nemotron/local fallback status as technical proof.
-7. End with approval packet generation only as an optional final action.
+1. Load the default `Road/Civil Infrastructure Contractor` profile.
+2. Show the user can switch to `Parks/Landscape Contractor` or `Professional Engineering/Design Firm`.
+3. Run a live Toronto Open Data scan, automatically falling back to cached real records if live fetch fails.
+4. Show records scanned, awards compared, and rejected opportunities.
+5. Open one `Pursue` or `Review` opportunity.
+6. Show extracted requirements, similar historical awards, false-positive rejection, and capacity warning evidence.
+7. Show Nemotron/local fallback status as technical proof.
+8. End with approval packet generation only as an optional final action.
 
 The one new feature allowed before demo polish freeze is **capacity warnings**:
 
@@ -277,7 +280,7 @@ MVP moat work:
   `Core Fit`, `Scope Fit`, `Buyer History`, `Capacity`, `Deadline`, `Competition`, `Pursuit Effort`, and `Decision`.
 - **Hard Blockers vs Soft Warnings:** separate reasons that force `Skip` from warnings that allow `Review` or `Monitor`.
 - **Historical Analog Retrieval:** every recommended or reviewed opportunity should show similar past awards and why those awards are relevant.
-- **Compact Backtest Summary:** show how the same engine would have handled historical Toronto records, such as realistic HVAC opportunities surfaced, poor fits rejected, and common false-positive categories skipped.
+- **Compact Backtest Summary:** show how the same engine would have handled historical Toronto records for the selected lane, including realistic opportunities surfaced, poor fits rejected, and common false-positive categories skipped.
 
 The moat story for judges:
 
@@ -292,17 +295,18 @@ Feature-creep boundary:
 
 ## Demo Flow
 
-1. Enter or load the demo business profile for `GTA Mechanical & Controls Ltd.`
-2. The system analyzes historical Toronto awards and reports how many past contracts the business could realistically have pursued.
-3. The user chooses a priority mode: **Best Win Chance**, **Best Fit**, or **Highest Value**.
-4. The user asks for current open bids.
-5. The system returns only a small number of strong recommendations, ideally the top 3 to 5.
-6. The system also shows skipped examples so judges can see false positives being rejected.
-7. The user clicks **Simulate Next Day**.
-8. The simulation advances through real open-data records until a relevant contract appears.
-9. The matching contract enters the pipeline and receives a bid/no-bid decision.
-10. The judge evidence view shows requirements extracted, similar awards retrieved, rules triggered, false positives skipped, and how the recommendation was produced.
-11. If available, the technical-depth panel shows a historical backtest summary: how many past records would have been surfaced or skipped by the same engine.
+1. Load the default road/civil infrastructure profile.
+2. Show the three profile switcher options and their 2026 YTD dataset counts.
+3. The system analyzes historical Toronto awards and reports how many past contracts the selected profile could realistically have pursued.
+4. The user chooses a priority mode: **Best Win Chance**, **Best Fit**, or **Highest Value**.
+5. The user asks for current open bids.
+6. The system returns only a small number of strong recommendations, ideally the top 3 to 5.
+7. The system also shows skipped examples so judges can see false positives being rejected.
+8. The user clicks **Simulate Next Day**.
+9. The simulation advances through real open-data records until a relevant contract appears for the selected profile.
+10. The matching contract enters the pipeline and receives a bid/no-bid decision.
+11. The judge evidence view shows requirements extracted, similar awards retrieved, rules triggered, false positives skipped, and how the recommendation was produced.
+12. If available, the technical-depth panel shows a historical backtest summary: how many past records would have been surfaced or skipped by the same engine.
 
 The dramatic demo moment is when the user does not search. A relevant contract appears because the system is watching for them.
 
@@ -408,7 +412,7 @@ By the end of the day, the main demo should support:
 
 ## Immediate MVP Agent Split
 
-The current codebase was built against the older KitchenCare plan. The first agent wave should modify that existing implementation rather than starting over. The goal is to get a credible MVP running on DGX Spark as soon as possible.
+The current codebase was built against an older single-profile plan. The first agent wave should modify that existing implementation rather than starting over. The goal is to get a credible MVP running on DGX Spark as soon as possible.
 
 Shared rules for all agents:
 
@@ -457,23 +461,24 @@ Shared rules for all agents:
 
 **MVP done when:** judges can see a benchmark or Evidence View proving what NVIDIA path ran, how fast the scan was, and how many model calls were avoided by local deterministic filtering.
 
-### Agent 1: Demo Business Retarget
+### Agent 1: Dataset Lane Profiles
 
-**Mission:** Replace the old `Leslieville KitchenCare` story with the HVAC/building automation contractor.
+**Mission:** Replace the old single-profile story with three data-backed 2026 YTD Toronto procurement lane profiles.
 
-**Owns:** default business profile, fallback sample data, demo copy, related tests.
+**Owns:** default business profile, supported profile metadata, fallback sample data, demo copy, related tests.
 
 **Likely files:** `contract_radar/models.py`, `contract_radar/sample_data.py`, `tests/test_data.py`, `tests/test_nemotron_fallback.py`, frontend default profile copy.
 
 **Work:**
 
-- Change the default profile to `GTA Mechanical & Controls Ltd.`
-- Use HVAC, BAS controls, boiler/chiller service, emergency repair, preventative maintenance, public building experience.
-- Replace kitchen-equipment fallback records with HVAC/facilities records.
-- Include obvious false positives: road paving, legal services, pure software, landscaping, food supply, oversized design/build construction.
-- Update tests that still expect KitchenCare terms.
+- Change the default profile to `road_civil_infrastructure`.
+- Add supported profiles for `road_civil_infrastructure`, `parks_landscape`, and `professional_engineering_design`.
+- Add profile metadata for lane basis, YTD solicitation hits, exclusive best-fit hits, top divisions, good-fit examples, and bad-fit examples.
+- Replace old single-profile fallback records with road/civil, parks/landscape, and engineering/design records.
+- Include obvious false positives: pure software, legal services, food supply, wrong-lane construction, professional-only work for contractor profiles, and construction-only work for the engineering/design profile.
+- Update tests that still expect obsolete single-profile terms.
 
-**MVP done when:** the first screen and fallback scan tell the HVAC story without any KitchenCare leftovers.
+**MVP done when:** the first screen and fallback scan show the three data-backed profiles as the main story.
 
 ### Agent 2: Decision Labels And Priority Modes
 
@@ -515,7 +520,7 @@ Shared rules for all agents:
 - Add `bid_fitness_trace` for each evaluated opportunity with hard blockers, soft warnings, positive signals, historical analogs, capacity gates, deadline gates, false-positive checks, and final rationale.
 - Add a Bid Fitness Scorecard with business labels only, not numeric confidence percentages.
 - Separate hard blockers from soft warnings so the user can tell why a bid was skipped versus why it needs review.
-- Make false-positive rejection visible, especially misleading terms like road maintenance, software maintenance, legal services, food supply, landscaping, and oversized construction.
+- Make false-positive rejection visible, especially misleading terms like maintenance, design, consulting, software, legal services, food supply, wrong-lane construction, and oversized construction.
 - Add tests showing that misleading keyword matches are skipped even when they share generic terms with the profile.
 
 **MVP done when:** each top or skipped opportunity can show extracted requirements, hard blockers, soft warnings, rules triggered, scorecard labels, and the strongest reason for the final bid/no-bid decision. If local Nemotron is active, shortlisted opportunities also produce an owner-ready bid brief/checklist/question set that visibly saves review time.
@@ -583,7 +588,7 @@ Shared rules for all agents:
 - Change the demo from generic 30-day simulation to a "Simulate Next Day" flow.
 - Advance through real/cached solicitation records until a relevant opportunity appears.
 - Make the event feel like the system was watching and surfaced the contract automatically.
-- Add a historical backtest summary when practical: replay past awarded/open records and report how many realistic HVAC opportunities the same engine would have surfaced or skipped.
+- Add a historical backtest summary when practical: replay past awarded/open records and report how many realistic opportunities the same engine would have surfaced or skipped for the selected profile.
 - Preserve deterministic fallback behavior so the demo is stable.
 
 **MVP done when:** the user can click one simulation control and see a real or cached relevant contract appear as a daily alert, with optional backtest evidence if it is ready.
@@ -599,10 +604,10 @@ Shared rules for all agents:
 **Work:**
 
 - Replay evaluated current/cached Toronto records to count actionable opportunities, skipped misleading matches, capacity downgrades, and similar awards used as grounding.
-- Produce one judge-friendly non-obvious insight sentence, such as a buyer/division pattern, realistic award range, and capacity-aware recommendation for the HVAC/BAS profile.
+- Produce one judge-friendly non-obvious insight sentence, such as a buyer/division pattern, realistic award range, and capacity-aware recommendation for the selected profile.
 - Estimate practical value with bid-review hours saved from skipped false positives.
 - Surface scorecard output in `/api/scan`, Evidence View, benchmark output, and tests.
-- Include at least one test covering a true HVAC/BAS fit, a misleading maintenance false positive, and a capacity downgrade.
+- Include tests covering a true fit for each supported profile, a misleading false positive, and a capacity downgrade.
 
 **MVP done when:** the Evidence View can say what insight the engine discovered, how it was grounded, and how much owner time the filtering saved.
 
@@ -614,7 +619,7 @@ Shared rules for all agents:
 
 **Work:**
 
-- Replace old KitchenCare and old label language.
+- Replace obsolete single-profile and old label language.
 - Emphasize "local bid intelligence engine," not chatbot.
 - Explain Toronto Open Data limitations honestly: the open solicitation feed is public/open-data coverage, not every City bid ever.
 - Keep later source expansion clearly marked as future work.
@@ -623,7 +628,7 @@ Shared rules for all agents:
 - Only mention fine-tuning if a ranker/backtest evaluation exists.
 - Add exact demo steps for Spark MVP.
 
-**MVP done when:** the docs, demo script, and app all tell the same HVAC/Toronto/Open Data/Spark story.
+**MVP done when:** the docs, demo script, and app all tell the same three-profile Toronto Open Data/Spark story.
 
 ### Agent 7: Bid-Fit Ranker And Fine-Tuning Stretch
 
@@ -670,7 +675,8 @@ Before calling the MVP ready, Agent 0 or the integrator must verify:
 - `python app.py` starts successfully.
 - `/api/health` reports the app, `nvidia_stack_active`, active NVIDIA tools, DGX/RAPIDS status, NIM mode, and Spark story.
 - `/api/scan` works with cached Toronto data.
-- The default profile is `GTA Mechanical & Controls Ltd.`
+- The default profile is `road_civil_infrastructure`.
+- `/api/health` exposes the three supported profiles: road/civil infrastructure, parks/landscape, and professional engineering/design.
 - The UI uses `Pursue`, `Review`, `Monitor`, and `Skip`.
 - Priority mode selection exists and changes ranking behavior.
 - Evidence View shows a visual multi-stage pipeline.
@@ -728,5 +734,5 @@ The project is good if testing on DGX Spark shows:
 - Browser QA passes for the local app.
 - Browser QA includes screenshots at desktop and laptop/mobile widths, checking readability, table/inspector layout, loading/error states, and no overlapping text.
 - Live or cached scan can process current Toronto procurement records and fall back to sample data if Open Data is unavailable.
-- Unit tests cover at least one true HVAC/BAS fit, one misleading keyword false positive, one capacity downgrade, unavailable-NIM fast-fail, RAPIDS/Python parity when RAPIDS is installed, one hard-blocker trace, one soft-warning trace, one scorecard label set, one historical retrieval example, and one compact backtest summary.
+- Unit tests cover at least one true fit for each supported profile, one misleading keyword false positive, one capacity downgrade, unavailable-NIM fast-fail, RAPIDS/Python parity when RAPIDS is installed, one hard-blocker trace, one soft-warning trace, one scorecard label set, one historical retrieval example, and one compact backtest summary.
 - If the ranker stretch is included, its evaluation command produces a readable before/after summary.

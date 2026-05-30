@@ -14,17 +14,17 @@ from contract_radar.models import (
 
 
 ACCESSIBLE_TYPES = ("rfq", "quotation")
-COMPLEX_TYPES = ("rfp", "rfsq", "request for supplier qualification", "tender", "construction")
+RFSQ_TYPES = ("rfsq", "request for supplier qualification", "supplier qualification")
+RFP_TYPES = ("rfp", "request for proposal", "proposal")
+TENDER_TYPES = ("rft", "request for tender", "tender")
 LARGE_SCOPE_TERMS = {
-    "construction",
     "design-build",
     "design build",
-    "general contractor",
-    "bonding",
-    "renovation",
-    "engineering",
-    "architectural",
-    "infrastructure",
+    "major construction",
+    "construction management",
+    "pre-qualified general contractor",
+    "full design and construction",
+    "new facility construction",
 }
 URGENCY_WINDOW_DAYS = 5
 DECISION_LABELS = ("Pursue", "Review", "Monitor", "Skip")
@@ -36,6 +36,8 @@ GENERIC_MATCH_TERMS = {
     "emergency repairs",
     "mechanical repairs",
     "municipal/public facility service",
+    "municipal",
+    "public",
 }
 BROAD_SINGLE_MATCH_TERMS = {
     "administration",
@@ -577,15 +579,46 @@ def _type_complexity(profile: BusinessProfile, solicitation: Solicitation) -> st
     text = " ".join([solicitation.solicitation_type, solicitation.description, solicitation.category]).lower()
     if _contains_any(text, ACCESSIBLE_TYPES):
         return "accessible"
-    if _contains_any(text, COMPLEX_TYPES) or _contains_any(text, _large_scope_terms(profile)):
+    if _contains_any(text, RFSQ_TYPES):
+        return "complex"
+    if _contains_any(text, RFP_TYPES):
+        if profile.profile_id == "professional_engineering_design":
+            return "standard"
+        return "complex"
+    if _contains_any(text, TENDER_TYPES):
+        if profile.profile_id in {"road_civil_infrastructure", "parks_landscape"}:
+            return "standard"
+        return "complex"
+    if _contains_any(text, _large_scope_terms(profile)):
         return "complex"
     return "standard"
 
 
 def _large_scope_terms(profile: BusinessProfile) -> set[str]:
-    profile_text = " ".join([profile.profile_id, profile.business_type, *profile.skills]).lower()
-    if any(term in profile_text for term in ("design", "engineering", "architect")):
-        return LARGE_SCOPE_TERMS - {"engineering", "architectural"}
+    if profile.profile_id == "road_civil_infrastructure":
+        return {
+            "design-build",
+            "design build",
+            "professional consulting engineering",
+            "architectural design",
+            "design-only",
+        }
+    if profile.profile_id == "parks_landscape":
+        return {
+            "major road construction",
+            "watermain replacement",
+            "sewer rehabilitation",
+            "design-build",
+            "design build",
+        }
+    if profile.profile_id == "professional_engineering_design":
+        return {
+            "construction services",
+            "general contractor",
+            "road paving",
+            "supply and custom application",
+            "construction-only",
+        }
     return LARGE_SCOPE_TERMS
 
 

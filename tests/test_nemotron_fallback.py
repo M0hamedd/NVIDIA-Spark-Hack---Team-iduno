@@ -51,25 +51,25 @@ class NemotronFallbackTests(unittest.TestCase):
         self.assertEqual(len(enriched), 1)
         self.assertEqual(enriched[0].label, "Pursue")
         self.assertEqual(enriched[0].requirements.source, "deterministic_fallback")
-        self.assertIn("HVAC maintenance", enriched[0].requirements.services)
-        self.assertIn("building automation systems/BAS controls", enriched[0].requirements.services)
+        self.assertIn("road repairs", enriched[0].requirements.services)
+        self.assertIn("traffic staging", enriched[0].requirements.services)
         self.assertEqual(enriched[0].requirements.deadline_risk, "Manageable")
-        self.assertIn("GTA Mechanical & Controls Ltd.", enriched[0].nemotron_summary)
+        self.assertIn("Harbourfront Civil Works Ltd.", enriched[0].nemotron_summary)
         self.assertIn("Historical signal", enriched[0].nemotron_summary)
 
     def test_local_nim_structured_response_is_validated(self) -> None:
         profile = BusinessProfile()
         response = {
-            "services": ["HVAC preventative maintenance", "BAS controls"],
-            "certifications": ["technician certification"],
+            "services": ["road repairs", "traffic staging"],
+            "certifications": ["bonding capacity"],
             "documents": ["insurance", "WSIB"],
-            "facility_signals": ["municipal facilities"],
-            "risk_flags": ["after-hours response may be required"],
+            "facility_signals": ["municipal road corridor"],
+            "risk_flags": ["traffic staging review"],
             "capacity_flags": ["multi-site scheduling review"],
-            "procurement_type": "RFQ",
+            "procurement_type": "RFT",
             "deadline_risk": "Manageable",
             "next_action": "Prepare owner review package.",
-            "summary": "HVAC and controls service for municipal facilities.",
+            "summary": "Road and sidewalk repair work for municipal corridors.",
         }
 
         with patch("contract_radar.nemotron._nim_preflight", return_value={"available": True, "reason": "test"}):
@@ -78,14 +78,14 @@ class NemotronFallbackTests(unittest.TestCase):
 
         self.assertEqual(mode, "local_nim")
         self.assertEqual(enriched[0].requirements.source, "local_nim")
-        self.assertIn("BAS controls", enriched[0].requirements.services)
+        self.assertIn("traffic staging", enriched[0].requirements.services)
         self.assertEqual(enriched[0].requirements.next_action, "Prepare owner review package.")
 
     def test_to_dict_exposes_requirements_for_frontend(self) -> None:
         opportunity = _opportunity()
         opportunity.requirements = RequirementExtraction(
             source="deterministic_fallback",
-            services=["HVAC maintenance"],
+            services=["road repairs"],
             deadline_risk="Manageable",
             next_action="Prepare owner review package.",
         )
@@ -95,7 +95,7 @@ class NemotronFallbackTests(unittest.TestCase):
         self.assertIn("requirements", payload)
         self.assertIn("nemotron_requirements", payload)
         self.assertIn("capacity_assessment", payload)
-        self.assertEqual(payload["requirements"]["services"], ["HVAC maintenance"])
+        self.assertEqual(payload["requirements"]["services"], ["road repairs"])
         self.assertEqual(payload["capacity_assessment"]["pursuit_load"], "Clear")
 
     def test_status_is_available_without_nim(self) -> None:
@@ -125,26 +125,26 @@ def _opportunity() -> EvaluatedOpportunity:
     return EvaluatedOpportunity(
         solicitation=Solicitation(
             document_number="RFQ-123",
-            solicitation_type="RFQ",
-            category="Facilities Maintenance",
-            description="Preventative maintenance for HVAC systems and BAS controls",
-            division="Corporate Real Estate Management",
+            solicitation_type="Request for Tender",
+            category="Construction Services",
+            description="Road repairs, sidewalk repairs, curb repair, asphalt paving, and traffic staging",
+            division="Transportation Services",
             issue_date=date(2026, 5, 30),
             submission_deadline=date(2026, 6, 20),
             buyer_name="City Buyer",
         ),
         label="Pursue",
         rank_score=91,
-        matched_terms=["preventative maintenance", "HVAC maintenance", "building automation systems/BAS controls"],
-        missing_requirements=["confirm insurance certificate"],
-        reasons=["RFQ format", "similar awards within preferred size"],
+        matched_terms=["road repairs", "sidewalk repairs", "traffic staging"],
+        missing_requirements=["confirm bonding capacity"],
+        reasons=["RFT format", "similar awards within preferred size"],
         days_until_deadline=21,
         historical=HistoricalComparison(
             similar_count=4,
-            award_min=35000,
-            award_median=72000,
-            award_max=108000,
-            accessibility="within small-business range",
+            award_min=350000,
+            award_median=720000,
+            award_max=1080000,
+            accessibility="within civil contractor range",
         ),
     )
 

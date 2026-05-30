@@ -18,38 +18,38 @@ class BacktestScorecardTests(unittest.TestCase):
         solicitations = [
             _solicitation(
                 "RFQ-TRUE",
-                "Request for Quotation",
-                "Goods and Services",
-                "HVAC maintenance BAS controls boiler service and emergency repairs for municipal facilities",
+                "Request for Tender",
+                "Construction Services",
+                "Road repairs sidewalk repairs curb repair asphalt paving and traffic staging for municipal road corridors",
                 date(2026, 6, 20),
             ),
             _solicitation(
                 "RFQ-FALSE",
-                "Request for Quotation",
-                "Goods and Services",
-                "Preventative maintenance and emergency repair services for kitchen equipment",
+                "Request for Proposal",
+                "Professional Services",
+                "Cloud-based road asset management software implementation with data migration and licensing",
                 date(2026, 6, 20),
             ),
             _solicitation(
                 "RFQ-CAPACITY",
-                "Request for Quotation",
-                "Goods and Services",
-                "HVAC maintenance BAS controls boiler service and emergency repairs for municipal facilities",
+                "Request for Tender",
+                "Construction Services",
+                "Road repairs sidewalk repairs curb repair asphalt paving and traffic staging for municipal road corridors",
                 date(2026, 6, 2),
             ),
         ]
         awards = [
             _award(
-                "AWD-HVAC",
-                125000,
-                "Facilities Management",
-                "HVAC maintenance BAS controls boiler service for municipal facilities",
+                "AWD-ROAD",
+                640000,
+                "Transportation Services",
+                "Road repairs sidewalk repairs curb repair asphalt paving and traffic staging",
             ),
             _award(
-                "AWD-CONTROLS",
-                180000,
-                "Facilities Management",
-                "Building automation systems BAS controls and emergency mechanical repairs",
+                "AWD-BRIDGE",
+                1180000,
+                "Engineering & Construction Services",
+                "Bridge rehabilitation traffic staging and civil infrastructure construction",
             ),
         ]
 
@@ -76,7 +76,7 @@ def _solicitation(
         solicitation_type=solicitation_type,
         category=category,
         description=description,
-        division="Facilities Management",
+        division="Transportation Services",
         issue_date=TODAY,
         submission_deadline=deadline,
     )
@@ -85,9 +85,9 @@ def _solicitation(
 def _award(document_number: str, value: float, division: str, description: str) -> AwardRecord:
     return AwardRecord(
         document_number=document_number,
-        solicitation_type="Request for Quotation",
-        category="Goods and Services",
-        supplier="Local HVAC Vendor",
+        solicitation_type="Request for Tender",
+        category="Construction Services",
+        supplier="Local Civil Vendor",
         award_value=value,
         award_date=date(2025, 5, 30),
         division=division,

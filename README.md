@@ -2,7 +2,13 @@
 
 Live Contract Radar is a Toronto Open Data procurement agent for small businesses. It monitors current City of Toronto contract opportunities, filters out poor fits, compares realistic matches against historical awards, and prepares an approval-gated bid packet for the owner.
 
-The V1 demo focuses on **GTA Mechanical & Controls Ltd.**, a Toronto-area commercial HVAC and building automation contractor. The goal is to show how a local service business that does not have a procurement team can still discover and act on realistic public revenue opportunities.
+The V1 demo focuses on three data-backed 2026 YTD Toronto procurement lanes that the user can switch between live:
+
+- **Road/Civil Infrastructure Contractor:** 45 multi-label solicitation hits; 29 exclusive best-fit hits.
+- **Parks/Landscape Contractor:** 42 multi-label solicitation hits; 29 exclusive best-fit hits.
+- **Professional Engineering/Design Firm:** 23 multi-label solicitation hits; 14 exclusive best-fit hits.
+
+The goal is to show how a local contractor, vendor, or professional firm without a procurement team can still discover and act on realistic public revenue opportunities in the lanes where Toronto is repeatedly buying.
 
 This is not a chatbot. It is a local bid intelligence engine: deterministic filtering, historical award comparison, a visual evidence pipeline, and optional Nemotron/NIM structured extraction when a local model endpoint is available.
 
@@ -15,13 +21,14 @@ This is not a chatbot. It is a local bid intelligence engine: deterministic filt
 
 ## V1 Demo Flow
 
-1. Enter or use the default GTA Mechanical & Controls Ltd. business profile.
-2. Run a live scan of Toronto procurement data.
-3. Review rejected opportunities to prove the system is filtering, not listing.
-4. Open a top `Pursue` or `Review` opportunity.
-5. Compare the opportunity to similar historical awards and capacity warnings.
-6. Open the judge evidence view for records scanned, rejection counts, runtime, active NVIDIA path, model calls avoided, and backtest insight.
-7. Approve the opportunity and generate a simulated bid packet.
+1. Start with the default **Road/Civil Infrastructure Contractor** profile.
+2. Switch between the three data-backed demo lanes to show that matching behavior changes by business type.
+3. Run a live scan of Toronto procurement data.
+4. Review rejected opportunities to prove the system is filtering, not listing.
+5. Open a top `Pursue` or `Review` opportunity.
+6. Compare the opportunity to similar historical awards and capacity warnings.
+7. Open the judge evidence view for records scanned, rejection counts, runtime, active NVIDIA path, model calls avoided, and backtest insight.
+8. Approve the opportunity and generate a simulated bid packet.
 
 ## Spark/Local Fast Path
 
@@ -131,6 +138,8 @@ Expected V1 coverage:
 - Live or fallback data loads successfully.
 - Irrelevant, expired, oversized, or wrong-category opportunities are rejected.
 - Strong matches are labeled `Pursue` or `Review`.
+- The three supported profiles map to road/civil infrastructure, parks/landscape, and professional engineering/design lanes.
+- Profile switching changes ranking behavior while keeping the same endpoints and decision labels.
 - Historical award values parse into a range or return insufficient history.
 - Approval packet generation requires explicit owner approval.
 - Nemotron fallback works when no local NIM endpoint is running.

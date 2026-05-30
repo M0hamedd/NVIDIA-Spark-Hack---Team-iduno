@@ -19,6 +19,7 @@ def simulate_month(scan_result: dict[str, Any], days: int = 30) -> list[dict[str
     if next_day_mode:
         start = start + timedelta(days=1)
     opportunities = _ordered_opportunities(scan_result)
+    skipped_opportunities = _skipped_opportunities(scan_result)
     metrics = scan_result.get("metrics") or {}
     profile = scan_result.get("business_profile") or {}
 
@@ -28,10 +29,13 @@ def simulate_month(scan_result: dict[str, Any], days: int = 30) -> list[dict[str
             0,
             "scan_day",
             "Daily monitor completed" if next_day_mode else "Live scan completed",
-            _scan_message(metrics, opportunities, next_day_mode),
+            _scan_message(metrics, opportunities, skipped_opportunities, next_day_mode),
             priority="system",
         )
     ]
+
+    if skipped_opportunities:
+        timeline.append(_false_positive_filter_event(start, 0, skipped_opportunities, next_day_mode))
 
     if not opportunities:
         timeline.append(
@@ -82,6 +86,23 @@ def _ordered_opportunities(scan_result: dict[str, Any]) -> list[dict[str, Any]]:
     return ordered
 
 
+def _skipped_opportunities(scan_result: dict[str, Any]) -> list[dict[str, Any]]:
+    seen: set[str] = set()
+    skipped: list[dict[str, Any]] = []
+    for bucket in ("skipped", "all_evaluated"):
+        for item in scan_result.get(bucket) or []:
+            if not isinstance(item, dict):
+                continue
+            if _value(item, "label", "") != "Skip":
+                continue
+            opportunity_id = _opportunity_id(item)
+            if opportunity_id in seen:
+                continue
+            seen.add(opportunity_id)
+            skipped.append(item)
+    return skipped
+
+
 def _new_alert_event(
     start: date,
     day: int,
@@ -106,6 +127,36 @@ def _new_alert_event(
         message,
         opportunity,
         priority="high",
+    )
+
+
+def _false_positive_filter_event(
+    start: date,
+    day: int,
+    skipped_opportunities: list[dict[str, Any]],
+    next_day_mode: bool,
+) -> dict[str, Any]:
+    count = len(skipped_opportunities)
+    example = skipped_opportunities[0]
+    reason = _rejection_phrase(example)
+    title = (
+        f"{count} poor-fit item(s) filtered"
+        if next_day_mode
+        else f"{count} rejected item(s) filtered"
+    )
+    message = (
+        f"Next-day monitor skipped {_title(example)} because {reason}."
+        if next_day_mode
+        else f"Top rejected example: {_title(example)} because {reason}."
+    )
+    return _event(
+        start,
+        day,
+        "false_positive_filter",
+        title,
+        message,
+        example,
+        priority="low",
     )
 
 
@@ -186,15 +237,30 @@ def _event(
     return event
 
 
-def _scan_message(metrics: dict[str, Any], opportunities: list[dict[str, Any]], next_day_mode: bool = False) -> str:
+def _scan_message(
+    metrics: dict[str, Any],
+    opportunities: list[dict[str, Any]],
+    skipped_opportunities: list[dict[str, Any]],
+    next_day_mode: bool = False,
+) -> str:
     loaded = metrics.get("solicitations_loaded", 0)
     awards = metrics.get("awards_loaded", 0)
+    rejected = metrics.get("rejected_count")
+    rejected_count = int(rejected) if rejected is not None else len(skipped_opportunities)
+    rejected_phrase = (
+        f" and rejected {rejected_count} poor-fit item(s)"
+        if rejected_count
+        else ""
+    )
     if next_day_mode:
         return (
             f"Next-day monitor checked {loaded} solicitations, compared {awards} historical awards, "
-            f"and surfaced {len(opportunities)} candidate(s)."
+            f"surfaced {len(opportunities)} candidate(s){rejected_phrase}."
         )
-    return f"Scanned {loaded} solicitations, compared {awards} historical awards, and tracked {len(opportunities)} candidate(s)."
+    return (
+        f"Scanned {loaded} solicitations, compared {awards} historical awards, "
+        f"tracked {len(opportunities)} candidate(s){rejected_phrase}."
+    )
 
 
 def _no_match_message(profile: dict[str, Any], next_day_mode: bool) -> str:
@@ -207,11 +273,12 @@ def _no_match_message(profile: dict[str, Any], next_day_mode: bool) -> str:
 def _sort_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     order = {
         "scan_day": 0,
-        "new_alert": 1,
-        "watchlist_update": 2,
-        "deadline_approaching": 3,
-        "approval_ready": 4,
-        "no_matches": 5,
+        "false_positive_filter": 1,
+        "new_alert": 2,
+        "watchlist_update": 3,
+        "deadline_approaching": 4,
+        "approval_ready": 5,
+        "no_matches": 6,
     }
     return sorted(events, key=lambda event: (event["day"], order.get(event["type"], 99), event.get("opportunity_id", "")))
 
@@ -239,6 +306,18 @@ def _matched_phrase(opportunity: dict[str, Any]) -> str:
     if not terms:
         return "the business profile"
     return ", ".join(str(term) for term in terms[:4])
+
+
+def _rejection_phrase(opportunity: dict[str, Any]) -> str:
+    reasons = (
+        _value(opportunity, "rejection_reasons", [])
+        or _value(opportunity, "missing_requirements", [])
+        or _value(opportunity, "reasons", [])
+        or []
+    )
+    if not reasons:
+        return "it did not match the selected profile"
+    return ", ".join(str(reason) for reason in reasons[:3])
 
 
 def _value(source: Any, key: str, default: Any = None) -> Any:

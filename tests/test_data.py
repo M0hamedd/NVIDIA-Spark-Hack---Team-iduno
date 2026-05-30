@@ -29,21 +29,62 @@ class ProcurementDataTests(unittest.TestCase):
 
         self.assertTrue(all(isinstance(item, Solicitation) for item in solicitations))
         self.assertTrue(all(isinstance(item, AwardRecord) for item in awards))
-        self.assertEqual(solicitations[0].document_number, "RFQ-2026-1001")
-        self.assertIn("building automation", solicitations[0].description.lower())
-        self.assertIn("hvac", solicitations[0].description.lower())
+        self.assertEqual(solicitations[0].document_number, "RFQ-2026-RC-101")
+        self.assertIn("road resurfacing", solicitations[0].description.lower())
+        self.assertIn("asphalt paving", solicitations[0].description.lower())
         self.assertGreater(awards[0].award_value, 0)
 
-    def test_default_profile_is_hvac_controls_contractor(self) -> None:
+    def test_sample_records_cover_three_demo_profiles(self) -> None:
+        roles_by_profile: dict[str, set[str]] = {}
+        for record in SAMPLE_SOLICITATION_RECORDS:
+            profile = str(record.get("Demo Profile") or "")
+            role = str(record.get("Demo Role") or "")
+            if profile:
+                roles_by_profile.setdefault(profile, set()).add(role)
+
+        self.assertEqual(
+            set(roles_by_profile),
+            {
+                "road_civil_infrastructure",
+                "parks_landscape",
+                "professional_engineering_design",
+            },
+        )
+        for roles in roles_by_profile.values():
+            self.assertIn("strong_fit", roles)
+            self.assertIn("false_positive", roles)
+            self.assertIn("capacity_deadline_warning", roles)
+
+    def test_sample_records_exercise_demo_profile_outcomes(self) -> None:
+        solicitations = sample_solicitations()
+        awards = sample_awards()
+
+        for profile in _demo_profiles():
+            evaluated = evaluate_opportunities(profile, solicitations, awards, date_today())
+            by_role = {
+                item.solicitation.raw.get("Demo Role"): item
+                for item in evaluated
+                if item.solicitation.raw.get("Demo Profile") == profile.profile_id
+            }
+
+            self.assertNotEqual(by_role["strong_fit"].label, "Skip", profile.profile_id)
+            self.assertEqual(by_role["false_positive"].label, "Skip", profile.profile_id)
+            self.assertTrue(
+                by_role["capacity_deadline_warning"].capacity_assessment.warnings,
+                profile.profile_id,
+            )
+
+    def test_default_profile_is_road_civil_contractor(self) -> None:
         profile = BusinessProfile()
 
-        self.assertEqual(profile.name, "GTA Mechanical & Controls Ltd.")
-        self.assertIn("HVAC", profile.business_type)
-        self.assertIn("building automation systems/BAS controls", profile.skills)
-        self.assertIn("boiler service", profile.skills)
-        self.assertIn("chiller service", profile.skills)
-        self.assertIn("technician certifications", profile.ready_documents)
-        self.assertIn("major design/build construction", profile.missing_capabilities)
+        self.assertEqual(profile.profile_id, "road_civil_infrastructure")
+        self.assertEqual(profile.label, "Road/Civil Infrastructure Contractor")
+        self.assertIn("road", profile.business_type)
+        self.assertIn("bridge rehabilitation", profile.skills)
+        self.assertIn("watermain construction", profile.skills)
+        self.assertIn("bonding capacity", profile.ready_documents)
+        self.assertIn("pure software implementation", profile.missing_capabilities)
+        self.assertEqual(profile.ytd_solicitation_hits, 45)
 
     def test_offline_fallback_loading(self) -> None:
         with patch.dict(os.environ, {config.OFFLINE_ENV: "1"}, clear=False):
@@ -64,10 +105,10 @@ class ProcurementDataTests(unittest.TestCase):
                         [
                             {
                                 "Document Number": "RFQ-CACHE-1",
-                                "RFx (Solicitation) Type": "Request for Quotation",
-                                "High Level Category": "Goods and Services",
-                                "Solicitation Document Description": "HVAC maintenance and BAS controls support",
-                                "Division": "Facilities",
+                                "RFx (Solicitation) Type": "Request for Tender",
+                                "High Level Category": "Construction Services",
+                                "Solicitation Document Description": "Road repairs, sidewalk repairs, curb repair, and asphalt paving",
+                                "Division": "Transportation Services",
                                 "Issue Date": "2026-05-01",
                                 "Submission Deadline": "2026-06-01",
                             }
@@ -75,13 +116,13 @@ class ProcurementDataTests(unittest.TestCase):
                         [
                             {
                                 "Document Number": "RFQ-AWARD-1",
-                                "RFx (Solicitation) Type": "Request for Quotation",
-                                "High Level Category": "Goods and Services",
-                                "Successful Supplier": "Local HVAC Controls",
+                                "RFx (Solicitation) Type": "Request for Tender",
+                                "High Level Category": "Construction Services",
+                                "Successful Supplier": "Local Civil Works",
                                 "Award": "$12,500",
                                 "Award Authority Obtained Date": "2025-06-01",
-                                "Division": "Facilities",
-                                "Solicitation Document Description": "HVAC maintenance and BAS controls support",
+                                "Division": "Transportation Services",
+                                "Solicitation Document Description": "Road repairs, sidewalk repairs, curb repair, and asphalt paving",
                             }
                         ],
                     ]
@@ -137,6 +178,113 @@ def date_today():
     from datetime import date
 
     return date(2026, 5, 30)
+
+
+def _demo_profiles() -> list[BusinessProfile]:
+    return [
+        BusinessProfile.from_payload(
+            {
+                "profile_id": "road_civil_infrastructure",
+                "name": "Road/Civil Infrastructure Contractor",
+                "business_type": "road civil infrastructure asphalt paving curb sidewalk municipal contractor",
+                "max_contract_value": 650000,
+                "active_pursuit_count": 2,
+                "max_active_pursuits": 3,
+                "skills": [
+                    "road resurfacing",
+                    "asphalt paving",
+                    "curb repair",
+                    "concrete sidewalk replacement",
+                    "minor drainage restoration",
+                    "traffic control",
+                    "pavement markings",
+                    "pothole repair",
+                    "catch basin frame adjustments",
+                    "laneway repair",
+                ],
+                "missing_capabilities": [
+                    "software implementation",
+                    "SaaS licensing",
+                    "data migration",
+                    "professional engineering services",
+                    "design drawings",
+                    "arborist services",
+                    "food supply",
+                ],
+                "response_days_available": 12,
+            }
+        ),
+        BusinessProfile.from_payload(
+            {
+                "profile_id": "parks_landscape",
+                "name": "Parks/Landscape Contractor",
+                "business_type": "parks playground landscaping arborist public realm contractor",
+                "max_contract_value": 650000,
+                "active_pursuit_count": 1,
+                "max_active_pursuits": 3,
+                "skills": [
+                    "park improvements",
+                    "playground surfacing repairs",
+                    "trail resurfacing",
+                    "planting beds",
+                    "topsoil supply",
+                    "sod restoration",
+                    "site furnishings",
+                    "fencing",
+                    "arborist services",
+                    "tree pruning",
+                    "stump grinding",
+                    "trail clearing",
+                    "sports field turf repairs",
+                ],
+                "missing_capabilities": [
+                    "software implementation",
+                    "food supply",
+                    "beverages",
+                    "road paving",
+                    "professional engineering services",
+                    "general contractor",
+                ],
+                "response_days_available": 12,
+            }
+        ),
+        BusinessProfile.from_payload(
+            {
+                "profile_id": "professional_engineering_design",
+                "name": "Professional Engineering/Design Firm",
+                "business_type": "professional engineering design planning contract administration firm",
+                "max_contract_value": 900000,
+                "active_pursuit_count": 2,
+                "max_active_pursuits": 4,
+                "skills": [
+                    "professional engineering services",
+                    "preliminary design",
+                    "detailed design",
+                    "traffic safety review",
+                    "public realm accessibility upgrades",
+                    "tender support",
+                    "construction inspection",
+                    "contract administration",
+                    "bridge condition assessment",
+                    "structural engineering review",
+                    "environmental assessment support",
+                    "design drawings",
+                ],
+                "missing_capabilities": [
+                    "construction services",
+                    "general contractor",
+                    "road paving",
+                    "asphalt paving",
+                    "pavement markings",
+                    "traffic control",
+                    "equipment labour materials",
+                    "food supply",
+                    "software implementation",
+                ],
+                "response_days_available": 14,
+            }
+        ),
+    ]
 
 
 if __name__ == "__main__":

@@ -50,6 +50,25 @@ REQUIREMENT_SCHEMA: dict[str, Any] = {
 }
 
 SERVICE_TERMS = {
+    "road repairs": ("road repair", "road repairs", "road rehabilitation", "road corridor"),
+    "sidewalk repairs": ("sidewalk repair", "sidewalk repairs", "sidewalk construction"),
+    "bridge rehabilitation": ("bridge rehabilitation", "bridge deck", "bridge repairs"),
+    "watermain construction": ("watermain", "water main"),
+    "sewer rehabilitation": ("sewer rehabilitation", "sewer repair", "sewer"),
+    "curb repair": ("curb repair", "curb repairs", "curbs"),
+    "asphalt paving": ("asphalt", "paving"),
+    "traffic staging": ("traffic staging", "traffic control"),
+    "park improvements": ("park improvement", "park improvements", "park renewal"),
+    "playground installation": ("playground", "playground installation"),
+    "splash pad repairs": ("splash pad", "splashpad"),
+    "landscaping": ("landscaping", "landscape"),
+    "tree and arborist services": ("arborist", "tree service", "tree services"),
+    "trail repairs": ("trail repair", "trail repairs", "trail"),
+    "professional consulting engineering services": ("professional consulting engineering", "engineering services"),
+    "preliminary design": ("preliminary design",),
+    "detailed design": ("detailed design", "detail design"),
+    "tender preparation": ("tender preparation",),
+    "construction contract administration": ("contract administration",),
     "HVAC maintenance": ("hvac", "heating", "ventilation", "air conditioning"),
     "building automation systems/BAS controls": ("building automation", "bas", "controls", "automation"),
     "boiler service": ("boiler", "boilers"),
@@ -57,7 +76,7 @@ SERVICE_TERMS = {
     "emergency repairs": ("emergency", "urgent", "after-hours", "after hours"),
     "preventative maintenance": ("preventative", "preventive", "maintenance"),
     "energy retrofit support": ("energy retrofit", "retrofit", "energy efficiency"),
-    "mechanical repairs": ("mechanical", "repair", "repairs"),
+    "mechanical repairs": ("mechanical repair", "mechanical repairs"),
 }
 CERTIFICATION_TERMS = {
     "technician certification": ("certified", "certification", "licensed technician", "technician"),

@@ -93,7 +93,7 @@ def _top_insight(
         typical = f"${best.historical.award_median:,.0f}" if best.historical.award_median else "an unknown value"
         return (
             f"{profile.name} has a non-obvious revenue signal: {best.solicitation.division or division or 'this buyer'} "
-            f"has similar HVAC/BAS awards around {typical}, while the engine skipped "
+            f"has similar {profile.label.lower()} awards around {typical}, while the engine skipped "
             f"{len(false_positive_skips)} misleading match(es) and saved about {bid_hours_saved} bid-review hour(s)."
         )
 

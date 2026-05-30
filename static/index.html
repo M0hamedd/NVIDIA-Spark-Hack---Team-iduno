@@ -24,34 +24,52 @@
         <aside class="profile-panel" aria-label="Business profile">
           <div class="panel-heading">
             <p class="eyebrow">Business Profile</p>
-            <h2 id="profileName">CivicWorks Design Studio</h2>
+            <h2 id="profileName">Loading supported profiles</h2>
           </div>
 
           <div class="profile-block">
-            <h3>Supported Profile</h3>
+            <h3>Demo Persona</h3>
             <fieldset id="profileOptions" class="profile-control" aria-label="Supported business profile"></fieldset>
+          </div>
+
+          <div class="profile-block profile-evidence-block">
+            <h3>Lane Evidence</h3>
+            <p class="profile-basis-note">Based on 2026 Toronto solicitation patterns</p>
+            <dl id="profileEvidence" class="profile-evidence"></dl>
+            <div class="profile-evidence-group">
+              <span>Top Divisions</span>
+              <div id="profileDivisions" class="tag-grid compact"></div>
+            </div>
+            <div class="profile-evidence-group">
+              <span>Good Fit Examples</span>
+              <div id="profileGoodFit" class="tag-grid compact"></div>
+            </div>
+            <div class="profile-evidence-group">
+              <span>Bad Fit Examples</span>
+              <div id="profileBadFit" class="tag-grid compact warning-tags"></div>
+            </div>
           </div>
 
           <dl class="profile-facts">
             <div>
               <dt>Type</dt>
-              <dd id="profileType">Municipal design and engineering</dd>
+              <dd id="profileType">Waiting for /api/health</dd>
             </div>
             <div>
               <dt>Base</dt>
-              <dd id="profileBase">Toronto, GTA</dd>
+              <dd id="profileBase">Toronto</dd>
             </div>
             <div>
               <dt>Team</dt>
-              <dd id="profileTeam">18 people</dd>
+              <dd id="profileTeam">Not listed</dd>
             </div>
             <div>
               <dt>Capacity</dt>
-              <dd id="profileCapacity">8 city sites/day, up to $750K</dd>
+              <dd id="profileCapacity">Not listed</dd>
             </div>
             <div>
               <dt>Active Bids</dt>
-              <dd id="profilePursuits">2 active, limit 3</dd>
+              <dd id="profilePursuits">Not listed</dd>
             </div>
           </dl>
 
@@ -149,6 +167,8 @@
           </section>
 
           <section id="evidenceView" class="view-section" aria-label="Evidence view">
+            <section id="activeProfileEvidence" class="active-profile-evidence" aria-label="Active profile evidence"></section>
+
             <div class="metrics-grid">
               <div class="metric-tile">
                 <span>Solicitations</span>

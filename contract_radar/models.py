@@ -39,27 +39,55 @@ def money_to_float(value: Any) -> float:
 
 @dataclass
 class BusinessProfile:
-    profile_id: str = "building_mechanical"
-    name: str = "GTA Mechanical & Controls Ltd."
-    business_type: str = "commercial HVAC, building automation, and mechanical contractor"
-    base_location: str = "Toronto, Ontario"
-    team_size: int = 12
-    max_contract_value: float = 350000.0
-    max_sites_per_day: int = 5
+    profile_id: str = "road_civil_infrastructure"
+    label: str = "Road/Civil Infrastructure Contractor"
+    name: str = "Harbourfront Civil Works Ltd."
+    business_type: str = "road, sidewalk, bridge, sewer, watermain, paving, and civil infrastructure contractor"
+    base_location: str = "Toronto, GTA"
+    team_size: int = 28
+    max_contract_value: float = 1800000.0
+    max_sites_per_day: int = 4
     active_pursuit_count: int = 0
     max_active_pursuits: int = 3
     service_area: str = "Toronto"
+    lane_basis: str = "2026 YTD Toronto solicitations: road, sidewalk, bridge, watermain, sewer, paving, and traffic infrastructure work."
+    ytd_solicitation_hits: int = 45
+    exclusive_best_fit_hits: int = 29
+    top_divisions: list[str] = field(
+        default_factory=lambda: [
+            "Transportation Services",
+            "Engineering & Construction Services",
+            "Toronto Water",
+        ]
+    )
+    good_fit_examples: list[str] = field(
+        default_factory=lambda: [
+            "road and sidewalk repair",
+            "bridge rehabilitation",
+            "watermain and sewer construction",
+            "curb, asphalt, and traffic-stage civil work",
+        ]
+    )
+    bad_fit_examples: list[str] = field(
+        default_factory=lambda: [
+            "pure software implementation",
+            "parks-only landscaping",
+            "professional design-only studies",
+            "food or office supply",
+        ]
+    )
     skills: list[str] = field(
         default_factory=lambda: [
-            "HVAC maintenance",
-            "building automation systems/BAS controls",
-            "boiler service",
-            "chiller service",
-            "emergency repairs",
-            "preventative maintenance",
-            "energy retrofit support",
-            "municipal/public facility service",
-            "mechanical repairs",
+            "road repairs",
+            "sidewalk repairs",
+            "bridge rehabilitation",
+            "watermain construction",
+            "sewer rehabilitation",
+            "curb repair",
+            "asphalt paving",
+            "traffic staging",
+            "civil infrastructure construction",
+            "municipal road corridor work",
         ]
     )
     ready_documents: list[str] = field(
@@ -67,21 +95,22 @@ class BusinessProfile:
             "insurance",
             "WSIB",
             "HST",
-            "references",
-            "technician certifications",
+            "bonding capacity",
+            "municipal references",
+            "traffic control plan",
         ]
     )
     missing_capabilities: list[str] = field(
         default_factory=lambda: [
-            "major design/build construction",
-            "large construction bonding",
+            "professional engineering design only",
+            "architectural consulting",
+            "parks-only landscaping",
             "kitchen equipment",
-            "road paving",
             "pure software implementation",
             "food supply",
         ]
     )
-    response_days_available: int = 10
+    response_days_available: int = 14
 
     @classmethod
     def from_payload(cls, payload: dict[str, Any] | None) -> "BusinessProfile":
@@ -89,10 +118,12 @@ class BusinessProfile:
         profile = cls()
         for field_name in (
             "profile_id",
+            "label",
             "name",
             "business_type",
             "base_location",
             "service_area",
+            "lane_basis",
         ):
             if payload.get(field_name):
                 setattr(profile, field_name, str(payload[field_name]))
@@ -102,13 +133,22 @@ class BusinessProfile:
             "response_days_available",
             "active_pursuit_count",
             "max_active_pursuits",
+            "ytd_solicitation_hits",
+            "exclusive_best_fit_hits",
         ):
             if payload.get(field_name) is not None:
-                minimum = 0 if field_name == "active_pursuit_count" else 1
+                minimum = 0 if field_name in {"active_pursuit_count", "ytd_solicitation_hits", "exclusive_best_fit_hits"} else 1
                 setattr(profile, field_name, max(minimum, int(payload[field_name])))
         if payload.get("max_contract_value") is not None:
             profile.max_contract_value = max(0.0, float(payload["max_contract_value"]))
-        for field_name in ("skills", "ready_documents", "missing_capabilities"):
+        for field_name in (
+            "top_divisions",
+            "good_fit_examples",
+            "bad_fit_examples",
+            "skills",
+            "ready_documents",
+            "missing_capabilities",
+        ):
             if isinstance(payload.get(field_name), list):
                 setattr(profile, field_name, [str(item) for item in payload[field_name] if str(item).strip()])
         return profile

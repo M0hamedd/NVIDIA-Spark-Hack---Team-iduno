@@ -24,21 +24,21 @@ class SimulatorTests(unittest.TestCase):
     def test_timeline_generates_alert_watch_deadline_and_approval_events(self) -> None:
         bid = {
             "label": "Pursue",
-            "matched_terms": ["HVAC maintenance", "BAS controls", "preventative maintenance"],
+            "matched_terms": ["road resurfacing", "asphalt paving", "curb repair"],
             "days_until_deadline": 5,
             "missing_requirements": ["proof of insurance"],
             "solicitation": {
                 "document_number": "RFQ-1",
-                "description": "Municipal HVAC and building automation maintenance",
+                "description": "Municipal road resurfacing and curb repair",
             },
         }
         watch = {
             "label": "Monitor",
-            "matched_terms": ["mechanical repair"],
+            "matched_terms": ["traffic control"],
             "days_until_deadline": 40,
             "solicitation": {
                 "document_number": "RFP-2",
-                "description": "Public facility mechanical repair services",
+                "description": "Road corridor traffic control services",
             },
         }
 
@@ -64,12 +64,12 @@ class SimulatorTests(unittest.TestCase):
     def test_next_day_monitor_surfaces_pursue_alert(self) -> None:
         bid = {
             "label": "Pursue",
-            "matched_terms": ["HVAC service", "chiller maintenance", "municipal facility"],
+            "matched_terms": ["park improvements", "trail resurfacing", "planting beds"],
             "days_until_deadline": 12,
             "missing_requirements": [],
             "solicitation": {
-                "document_number": "RFQ-HVAC-7",
-                "description": "Next-day HVAC service and controls call",
+                "document_number": "RFQ-PARK-7",
+                "description": "Next-day park trail and planting restoration call",
             },
         }
 
@@ -89,7 +89,48 @@ class SimulatorTests(unittest.TestCase):
         self.assertEqual(alerts[0]["date"], "2026-05-31")
         self.assertEqual(alerts[0]["label"], "Pursue")
         self.assertIn("Next-day monitor surfaced", alerts[0]["message"])
-        self.assertIn("HVAC service", alerts[0]["message"])
+        self.assertIn("park improvements", alerts[0]["message"])
+
+    def test_next_day_monitor_reports_filtered_false_positive(self) -> None:
+        bid = {
+            "label": "Review",
+            "matched_terms": ["professional engineering services", "detailed design"],
+            "days_until_deadline": 6,
+            "solicitation": {
+                "document_number": "RFP-ENG-1",
+                "description": "Bridge condition assessment and detailed design",
+            },
+        }
+        skipped = {
+            "label": "Skip",
+            "matched_terms": ["contract administration"],
+            "rejection_reasons": ["blocked capability mismatch"],
+            "missing_requirements": ["general contractor"],
+            "solicitation": {
+                "document_number": "RFQ-CONSTRUCTION-2",
+                "description": "Construction-only asphalt paving delivery",
+            },
+        }
+
+        timeline = simulate_month(
+            {
+                "as_of": "2026-05-30",
+                "top_opportunities": [],
+                "watchlist": [bid],
+                "skipped": [skipped],
+                "all_evaluated": [bid, skipped],
+                "metrics": {"solicitations_loaded": 2, "awards_loaded": 3, "rejected_count": 1},
+            },
+            days=1,
+        )
+        filter_events = [event for event in timeline if event["type"] == "false_positive_filter"]
+
+        self.assertEqual(len(filter_events), 1)
+        self.assertEqual(filter_events[0]["date"], "2026-05-31")
+        self.assertEqual(filter_events[0]["label"], "Skip")
+        self.assertIn("poor-fit", filter_events[0]["title"])
+        self.assertIn("blocked capability mismatch", filter_events[0]["message"])
+        self.assertIn("rejected 1 poor-fit", timeline[0]["message"])
 
 
 if __name__ == "__main__":

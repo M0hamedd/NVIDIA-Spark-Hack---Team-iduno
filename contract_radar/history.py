@@ -221,7 +221,11 @@ def _similarity_score(
 
     award_terms = meaningful_terms(_text_for(award))
     overlap = sorted(solicitation_terms & award_terms)
-    service_terms = [term for term in overlap if term not in {"goods", "professional", "general"}]
+    service_terms = [
+        term
+        for term in overlap
+        if term not in {"goods", "professional", "general", "construction", "repairs"}
+    ]
     if not service_terms:
         return score, evidence_terms
     score += min(len(service_terms), 5)
@@ -264,7 +268,7 @@ def _profile_award_fit(profile: BusinessProfile, award: AwardRecord) -> tuple[in
     profile_terms = meaningful_terms(" ".join([profile.business_type, *profile.skills]))
     missing_terms = meaningful_terms(" ".join(profile.missing_capabilities))
 
-    if _contains_complex_scope(text_lower) or len(missing_terms & text_terms) >= 2:
+    if _contains_complex_scope(profile, text_lower) or len(missing_terms & text_terms) >= 2:
         return 0, []
 
     evidence_terms: list[str] = []
@@ -315,9 +319,16 @@ def _profile_award_fit(profile: BusinessProfile, award: AwardRecord) -> tuple[in
     return score, unique_evidence
 
 
-def _contains_complex_scope(text: str) -> bool:
+def _contains_complex_scope(profile: BusinessProfile, text: str) -> bool:
+    terms = set(COMPLEX_PAST_SCOPE_TERMS)
+    if profile.profile_id == "professional_engineering_design":
+        terms.discard("engineering services")
+    elif profile.profile_id == "road_civil_infrastructure":
+        terms -= {"bonding", "general contractor", "major construction", "prime contractor"}
+    elif profile.profile_id == "parks_landscape":
+        terms.discard("bonding")
     normalized = _norm(text)
-    return any(term in text or term in normalized for term in COMPLEX_PAST_SCOPE_TERMS)
+    return any(term in text or term in normalized for term in terms)
 
 
 def _ordered_unique(values: list[str]) -> list[str]:

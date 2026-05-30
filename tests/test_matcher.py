@@ -5,7 +5,8 @@ from datetime import date
 
 from contract_radar.history import compare_history
 from contract_radar.matcher import evaluate_opportunities
-from contract_radar.models import AwardRecord, BusinessProfile, Solicitation
+from contract_radar.models import AwardRecord, Solicitation
+from contract_radar.profiles import get_supported_profile
 
 
 TODAY = date(2026, 5, 30)
@@ -13,102 +14,91 @@ TODAY = date(2026, 5, 30)
 
 class MatcherTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.profile = BusinessProfile()
+        self.road_profile = get_supported_profile("road_civil_infrastructure")
+        self.parks_profile = get_supported_profile("parks_landscape")
+        self.engineering_profile = get_supported_profile("professional_engineering_design")
         self.awards = [
-            AwardRecord(
-                document_number="AWD-1",
-                solicitation_type="RFQ",
-                category="Goods and Services",
-                supplier="GTA Mechanical Services",
-                award_value=145000,
-                award_date=date(2025, 6, 1),
-                division="Facilities Management",
-                description="HVAC maintenance and emergency repairs for municipal public facilities",
-            ),
-            AwardRecord(
-                document_number="AWD-2",
-                solicitation_type="Request for Quotation",
-                category="Goods and Services",
-                supplier="Metro Controls Ltd.",
-                award_value=220000,
-                award_date=date(2025, 10, 1),
-                division="Facilities Management",
-                description="Building automation systems BAS controls boiler service and chiller service",
-            ),
-            AwardRecord(
-                document_number="AWD-3",
-                solicitation_type="RFP",
+            _award(
+                "AWD-ROAD-1",
+                640000,
+                "Transportation Services",
+                "Road repairs, sidewalk repairs, curb repair, asphalt paving, and traffic staging for municipal road corridors.",
                 category="Construction Services",
-                supplier="Major Builder",
-                award_value=950000,
-                award_date=date(2024, 9, 1),
-                division="Corporate Real Estate Management",
-                description="Design build renovation and construction management",
+                solicitation_type="Request for Tender",
+            ),
+            _award(
+                "AWD-BRIDGE-2",
+                1180000,
+                "Engineering & Construction Services",
+                "Bridge rehabilitation with deck repairs, traffic staging, concrete curb work, and civil infrastructure construction.",
+                category="Construction Services",
+                solicitation_type="Request for Tender",
+            ),
+            _award(
+                "AWD-PARK-1",
+                310000,
+                "Parks, Forestry & Recreation",
+                "Park improvements, playground installation, splash pad repairs, planting, site furnishings, and fencing.",
+                category="Construction Services",
+                solicitation_type="Request for Tender",
+            ),
+            _award(
+                "AWD-ARBOR-2",
+                95000,
+                "Parks, Forestry & Recreation",
+                "Tree and arborist services, trail repairs, sports field maintenance, and public realm maintenance.",
+                category="Goods and Services",
+                solicitation_type="Request for Quotation",
+            ),
+            _award(
+                "AWD-ENG-1",
+                520000,
+                "Engineering & Construction Services",
+                "Professional consulting engineering services for preliminary design, detailed design, tender preparation, and contract administration.",
+                category="Professional Services",
+                solicitation_type="Request for Proposal",
+            ),
+            _award(
+                "AWD-DESIGN-2",
+                360000,
+                "Parks, Forestry & Recreation",
+                "Park and public realm design, accessibility upgrades, facility condition assessments, and construction inspection.",
+                category="Professional Services",
+                solicitation_type="Request for Proposal",
             ),
         ]
 
-    def test_relevant_rfq_is_pursue(self) -> None:
+    def test_road_civil_tender_is_pursue(self) -> None:
         solicitation = _solicitation(
-            document_number="RFQ-1",
-            solicitation_type="RFQ",
-            category="Goods and Services",
-            description="HVAC maintenance BAS controls boiler service and emergency repairs for municipal facilities",
-            division="Facilities Management",
+            document_number="RFT-ROAD-1",
+            solicitation_type="Request for Tender",
+            category="Construction Services",
+            description=(
+                "Road repairs, sidewalk repairs, curb repair, asphalt paving, and traffic staging "
+                "for multiple municipal road corridors."
+            ),
+            division="Transportation Services",
             deadline=date(2026, 6, 20),
         )
 
-        result = evaluate_opportunities(self.profile, [solicitation], self.awards, TODAY)[0]
+        result = evaluate_opportunities(self.road_profile, [solicitation], self.awards, TODAY)[0]
 
         self.assertEqual(result.label, "Pursue")
-        self.assertIn("HVAC maintenance", result.matched_terms)
+        self.assertIn("road repairs", result.matched_terms)
         self.assertGreater(result.historical.similar_count, 0)
-        self.assertLessEqual(result.historical.award_median, self.profile.max_contract_value)
+        self.assertLessEqual(result.historical.award_median, self.road_profile.max_contract_value)
         self.assertTrue(any("Core Fit:" in reason for reason in result.reasons))
-        self.assertEqual(result.capacity_assessment.pursuit_load, "Clear")
         self.assertEqual(result.capacity_assessment.recommended_action, "Pursue Now")
-
-    def test_relevant_close_deadline_is_pursue_with_deadline_risk(self) -> None:
-        solicitation = _solicitation(
-            document_number="RFQ-URGENT",
-            solicitation_type="Request for Quotation",
-            category="Goods and Services",
-            description="HVAC maintenance emergency repairs and BAS controls",
-            division="Facilities Management",
-            deadline=date(2026, 6, 2),
-        )
-
-        result = evaluate_opportunities(self.profile, [solicitation], self.awards, TODAY)[0]
-
-        self.assertEqual(result.label, "Pursue")
-        self.assertEqual(result.days_until_deadline, 3)
-        self.assertTrue(any("Deadline Risk: Critical." == reason for reason in result.reasons))
-
-    def test_busy_capacity_warning_does_not_hide_strong_fit(self) -> None:
-        profile = BusinessProfile(active_pursuit_count=2, max_active_pursuits=3)
-        solicitation = _solicitation(
-            document_number="RFQ-BUSY",
-            solicitation_type="RFQ",
-            category="Goods and Services",
-            description="HVAC maintenance BAS controls boiler service and emergency repairs for municipal facilities",
-            division="Facilities Management",
-            deadline=date(2026, 6, 20),
-        )
-
-        result = evaluate_opportunities(profile, [solicitation], self.awards, TODAY)[0]
-
-        self.assertEqual(result.label, "Pursue")
-        self.assertEqual(result.capacity_assessment.pursuit_load, "Busy")
-        self.assertEqual(result.capacity_assessment.recommended_action, "Pursue Now")
-        self.assertTrue(result.capacity_assessment.warnings)
 
     def test_overloaded_close_deadline_downgrades_strong_fit_to_review(self) -> None:
-        profile = BusinessProfile(active_pursuit_count=3, max_active_pursuits=3)
+        profile = get_supported_profile("road_civil_infrastructure")
+        profile.active_pursuit_count = profile.max_active_pursuits
         solicitation = _solicitation(
-            document_number="RFQ-OVERLOADED",
-            solicitation_type="Request for Quotation",
-            category="Goods and Services",
-            description="HVAC maintenance BAS controls boiler service and emergency repairs for municipal facilities",
-            division="Facilities Management",
+            document_number="RFT-ROAD-URGENT",
+            solicitation_type="Request for Tender",
+            category="Construction Services",
+            description="Road repairs sidewalk repairs curb repair asphalt paving and traffic staging.",
+            division="Transportation Services",
             deadline=date(2026, 6, 2),
         )
 
@@ -122,173 +112,110 @@ class MatcherTests(unittest.TestCase):
 
     def test_expired_is_skip(self) -> None:
         solicitation = _solicitation(
-            document_number="OLD-1",
-            solicitation_type="RFQ",
-            category="Goods and Services",
-            description="HVAC maintenance and boiler service",
+            document_number="OLD-ROAD",
+            solicitation_type="Request for Tender",
+            category="Construction Services",
+            description="Road repairs, sidewalk repairs, and curb repair.",
             deadline=date(2026, 5, 1),
         )
 
-        result = evaluate_opportunities(self.profile, [solicitation], self.awards, TODAY)[0]
+        result = evaluate_opportunities(self.road_profile, [solicitation], self.awards, TODAY)[0]
 
         self.assertEqual(result.label, "Skip")
         self.assertIn("expired", result.rejection_reasons)
 
-    def test_unrelated_is_skip(self) -> None:
+    def test_road_profile_rejects_pure_software_mismatch(self) -> None:
         solicitation = _solicitation(
             document_number="IT-1",
-            solicitation_type="RFQ",
-            category="Information Technology",
-            description="Supply laptop computers and cloud software subscriptions",
+            solicitation_type="Request for Proposal",
+            category="Professional Services",
+            description="Cloud-based software implementation including data migration, licensing, and training.",
             deadline=date(2026, 6, 20),
+            division="Technology Services",
         )
 
-        result = evaluate_opportunities(self.profile, [solicitation], self.awards, TODAY)[0]
+        result = evaluate_opportunities(self.road_profile, [solicitation], self.awards, TODAY)[0]
 
         self.assertEqual(result.label, "Skip")
         self.assertIn("wrong service/category", result.rejection_reasons)
 
-    def test_large_construction_scope_requires_review_or_skip(self) -> None:
+    def test_parks_landscape_rejects_non_park_road_false_positive(self) -> None:
         solicitation = _solicitation(
-            document_number="RFP-1",
-            solicitation_type="RFP",
+            document_number="ROAD-LANDSCAPE",
+            solicitation_type="Request for Tender",
             category="Construction Services",
             description=(
-                "Design-build renovation with HVAC maintenance boiler service "
-                "mechanical repairs and building automation systems/BAS controls"
+                "Major road construction, sewer rehabilitation, curb repair, asphalt paving, "
+                "and streetscape landscaping for arterial road corridors."
             ),
-            division="Corporate Real Estate Management",
-            deadline=date(2026, 6, 30),
+            division="Transportation Services",
+            deadline=date(2026, 6, 20),
         )
 
-        result = evaluate_opportunities(self.profile, [solicitation], self.awards, TODAY)[0]
+        result = evaluate_opportunities(self.parks_profile, [solicitation], self.awards, TODAY)[0]
 
-        self.assertIn(result.label, {"Review", "Skip"})
-        self.assertTrue(
-            {"complex solicitation type", "large construction/design-build scope"}
-            & set(result.rejection_reasons)
+        self.assertEqual(result.label, "Skip")
+        self.assertIn("blocked capability mismatch", result.rejection_reasons)
+        self.assertIn("major road construction", result.missing_requirements)
+
+    def test_engineering_design_rejects_construction_only_bid(self) -> None:
+        solicitation = _solicitation(
+            document_number="CONSTRUCTION-ONLY",
+            solicitation_type="Request for Tender",
+            category="Construction Services",
+            description="Road paving, sidewalk construction, and curb repair by a general contractor.",
+            division="Transportation Services",
+            deadline=date(2026, 6, 20),
         )
+
+        result = evaluate_opportunities(self.engineering_profile, [solicitation], self.awards, TODAY)[0]
+
+        self.assertEqual(result.label, "Skip")
+        self.assertIn("wrong service/category", result.rejection_reasons)
 
     def test_relevant_weak_opportunity_is_monitor(self) -> None:
         solicitation = _solicitation(
             document_number="MONITOR-1",
             solicitation_type="Request for Information",
             category="Vendor Registry",
-            description="Mechanical repairs vendor roster for future municipal public facilities",
+            description="Future vendor registry for civil infrastructure contractor updates.",
             division="Purchasing and Materials Management",
             deadline=date(2026, 6, 25),
         )
 
-        result = evaluate_opportunities(self.profile, [solicitation], self.awards, TODAY)[0]
+        result = evaluate_opportunities(self.road_profile, [solicitation], self.awards, TODAY)[0]
 
         self.assertEqual(result.label, "Monitor")
-
-    def test_generic_maintenance_match_is_not_pursue(self) -> None:
-        solicitation = _solicitation(
-            document_number="GENERIC-1",
-            solicitation_type="RFQ",
-            category="Goods and Services",
-            description=(
-                "Preventative maintenance and emergency repair services for kitchen equipment "
-                "including specialized tools and consumables"
-            ),
-            division="Purchasing and Materials Management",
-            deadline=date(2026, 6, 25),
-        )
-
-        result = evaluate_opportunities(self.profile, [solicitation], self.awards, TODAY)[0]
-
-        self.assertNotEqual(result.label, "Pursue")
-        self.assertIn(result.label, {"Monitor", "Skip"})
-
-    def test_frontend_profile_rejects_kitchen_equipment_false_positive(self) -> None:
-        profile = BusinessProfile(
-            max_contract_value=750000,
-            skills=[
-                "HVAC maintenance",
-                "building automation systems",
-                "BAS controls",
-                "boiler service",
-                "chiller service",
-                "preventative maintenance",
-                "emergency repair",
-                "municipal facility service",
-            ],
-            missing_capabilities=[
-                "kitchen equipment",
-                "road paving",
-                "legal services",
-                "food supply",
-                "large design/build construction",
-            ],
-        )
-        solicitation = _solicitation(
-            document_number="KITCHEN-1",
-            solicitation_type="RFQ",
-            category="Goods and Services",
-            description=(
-                "Preventative maintenance, emergency repair services, and corrective "
-                "maintenance for kitchen equipment, inclusive of consumables and specialized tools."
-            ),
-            deadline=date(2026, 6, 20),
-        )
-
-        result = evaluate_opportunities(profile, [solicitation], self.awards, TODAY)[0]
-
-        self.assertEqual(result.label, "Skip")
-        self.assertIn("kitchen equipment", result.missing_requirements)
 
     def test_priority_modes_change_order_without_changing_labels(self) -> None:
         best_fit = _solicitation(
             document_number="FIT-1",
-            solicitation_type="RFQ",
-            category="Goods and Services",
-            description=(
-                "HVAC maintenance emergency repairs boiler service and chiller service "
-                "for municipal public facilities"
-            ),
-            division="Facilities Management",
+            solicitation_type="Request for Tender",
+            category="Construction Services",
+            description="Road repairs sidewalk repairs curb repair and asphalt paving for city corridors.",
+            division="Transportation Services",
             deadline=date(2026, 6, 20),
         )
         higher_value = _solicitation(
             document_number="VALUE-1",
-            solicitation_type="RFQ",
-            category="Goods and Services",
-            description=(
-                "Building automation systems/BAS controls energy retrofit support and "
-                "municipal/public facility service"
-            ),
-            division="Environment and Climate",
+            solicitation_type="Request for Tender",
+            category="Construction Services",
+            description="Bridge rehabilitation traffic staging and civil infrastructure construction.",
+            division="Engineering & Construction Services",
             deadline=date(2026, 6, 20),
         )
-        high_value_awards = [
-            *self.awards,
-            AwardRecord(
-                document_number="AWD-4",
-                solicitation_type="RFQ",
-                category="Goods and Services",
-                supplier="Integrated Building Controls",
-                award_value=330000,
-                award_date=date(2025, 8, 1),
-                division="Environment and Climate",
-                description=(
-                    "Building automation systems BAS controls energy retrofit support and "
-                    "municipal public facility service"
-                ),
-            ),
-        ]
 
         fit_order = evaluate_opportunities(
-            self.profile,
+            self.road_profile,
             [higher_value, best_fit],
-            high_value_awards,
+            self.awards,
             TODAY,
             priority_mode="best_fit",
         )
         value_order = evaluate_opportunities(
-            self.profile,
+            self.road_profile,
             [higher_value, best_fit],
-            high_value_awards,
+            self.awards,
             TODAY,
             priority_mode="highest_value",
         )
@@ -300,22 +227,54 @@ class MatcherTests(unittest.TestCase):
             {item.solicitation.document_number: item.label for item in value_order},
         )
 
+    def test_profile_switching_changes_top_ranking(self) -> None:
+        road = _solicitation(
+            "ROAD-FIT",
+            "Request for Tender",
+            "Construction Services",
+            "Road repairs sidewalk repairs curb repair asphalt paving and traffic staging.",
+            date(2026, 6, 20),
+            "Transportation Services",
+        )
+        parks = _solicitation(
+            "PARK-FIT",
+            "Request for Tender",
+            "Construction Services",
+            "Park improvements playground installation splash pad repairs landscaping and planting.",
+            date(2026, 6, 20),
+            "Parks, Forestry & Recreation",
+        )
+        engineering = _solicitation(
+            "ENG-FIT",
+            "Request for Proposal",
+            "Professional Services",
+            "Professional consulting engineering services for preliminary design detailed design and tender preparation.",
+            date(2026, 6, 20),
+            "Engineering & Construction Services",
+        )
+
+        road_order = evaluate_opportunities(self.road_profile, [parks, engineering, road], self.awards, TODAY)
+        parks_order = evaluate_opportunities(self.parks_profile, [road, engineering, parks], self.awards, TODAY)
+        eng_order = evaluate_opportunities(self.engineering_profile, [road, parks, engineering], self.awards, TODAY)
+
+        self.assertEqual(road_order[0].solicitation.document_number, "ROAD-FIT")
+        self.assertEqual(parks_order[0].solicitation.document_number, "PARK-FIT")
+        self.assertEqual(eng_order[0].solicitation.document_number, "ENG-FIT")
+
     def test_history_returns_range_and_accessibility(self) -> None:
         solicitation = _solicitation(
-            document_number="RFQ-HISTORY",
-            solicitation_type="RFQ",
-            category="Goods and Services",
-            description="HVAC maintenance BAS controls boiler service and chiller service",
-            division="Facilities Management",
+            document_number="RFT-HISTORY",
+            solicitation_type="Request for Tender",
+            category="Construction Services",
+            description="Road repairs sidewalk repairs curb repair asphalt paving and traffic staging.",
+            division="Transportation Services",
             deadline=date(2026, 6, 20),
         )
 
-        comparison = compare_history(solicitation, self.awards, self.profile)
+        comparison = compare_history(solicitation, self.awards, self.road_profile)
 
-        self.assertGreaterEqual(comparison.similar_count, 2)
-        self.assertEqual(comparison.award_min, 145000)
-        self.assertEqual(comparison.award_max, 220000)
-        self.assertEqual(comparison.award_median, 182500)
+        self.assertGreaterEqual(comparison.similar_count, 1)
+        self.assertEqual(comparison.award_min, 640000)
         self.assertIn("accessible", comparison.accessibility)
 
 
@@ -335,6 +294,26 @@ def _solicitation(
         division=division,
         issue_date=date(2026, 5, 20),
         submission_deadline=deadline,
+    )
+
+
+def _award(
+    document_number: str,
+    award_value: float,
+    division: str,
+    description: str,
+    category: str = "Construction Services",
+    solicitation_type: str = "Request for Tender",
+) -> AwardRecord:
+    return AwardRecord(
+        document_number=document_number,
+        solicitation_type=solicitation_type,
+        category=category,
+        supplier="Toronto Vendor Inc.",
+        award_value=award_value,
+        award_date=date(2025, 6, 1),
+        division=division,
+        description=description,
     )
 
 

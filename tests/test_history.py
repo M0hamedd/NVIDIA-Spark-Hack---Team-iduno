@@ -4,56 +4,44 @@ import unittest
 from datetime import date
 
 from contract_radar.history import HistoricalOpportunitySummary, summarize_past_opportunities
-from contract_radar.models import AwardRecord, BusinessProfile
+from contract_radar.models import AwardRecord
+from contract_radar.profiles import get_supported_profile
 
 
 class HistoricalOpportunitySummaryTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.profile = BusinessProfile(
-            name="GTA Mechanical & Controls Ltd.",
-            business_type="commercial HVAC and building automation contractor",
-            max_contract_value=150000,
-            skills=[
-                "HVAC maintenance",
-                "building automation systems",
-                "boiler service",
-                "chiller service",
-                "emergency repairs",
-                "preventative maintenance",
-            ],
-            missing_capabilities=["major construction bonding", "large design/build work"],
-        )
+        self.profile = get_supported_profile("road_civil_infrastructure")
 
     def test_summary_counts_realistic_past_awards_and_evidence(self) -> None:
         summary = summarize_past_opportunities(
             self.profile,
             [
                 _award(
-                    "AWD-HVAC-1",
-                    85000,
-                    "Facilities Management",
-                    "Preventative HVAC maintenance and emergency repairs for municipal recreation centres.",
-                    buyer="Maya Patel",
-                ),
-                _award(
-                    "AWD-BAS-2",
-                    125000,
-                    "Facilities Management",
-                    "Building automation systems controls service, boiler service, and chiller service.",
-                    buyer="Maya Patel",
-                ),
-                _award(
-                    "AWD-ROAD-3",
-                    70000,
+                    "AWD-ROAD-1",
+                    640000,
                     "Transportation Services",
-                    "Road resurfacing, paving, curb repair, and asphalt supply.",
+                    "Road repairs, sidewalk repairs, curb repair, asphalt paving, and traffic staging.",
                     buyer="Road Buyer",
                 ),
                 _award(
+                    "AWD-BRIDGE-2",
+                    1180000,
+                    "Engineering & Construction Services",
+                    "Bridge rehabilitation, traffic staging, and civil infrastructure construction.",
+                    buyer="Bridge Buyer",
+                ),
+                _award(
+                    "AWD-PARK-3",
+                    270000,
+                    "Parks, Forestry & Recreation",
+                    "Park improvements, playground installation, landscaping, planting, and site furnishings.",
+                    buyer="Parks Buyer",
+                ),
+                _award(
                     "AWD-BIG-4",
-                    900000,
+                    5600000,
                     "Corporate Real Estate Management",
-                    "Major design-build construction of a recreation centre with mechanical systems.",
+                    "Design-build construction of a new facility with full design and construction scope.",
                     category="Construction Services",
                     solicitation_type="Request for Proposal",
                     buyer="Capital Projects",
@@ -63,14 +51,19 @@ class HistoricalOpportunitySummaryTests(unittest.TestCase):
 
         self.assertIsInstance(summary, HistoricalOpportunitySummary)
         self.assertEqual(summary.realistic_count, 2)
-        self.assertEqual([item["document_number"] for item in summary.sample_awards], ["AWD-BAS-2", "AWD-HVAC-1"])
-        self.assertEqual(summary.award_value_range["min"], 85000)
-        self.assertEqual(summary.award_value_range["median"], 105000)
-        self.assertEqual(summary.award_value_range["max"], 125000)
-        self.assertEqual(summary.common_divisions[0], {"name": "Facilities Management", "count": 2})
-        self.assertEqual(summary.common_buyers[0], {"name": "Maya Patel", "count": 2})
-        self.assertIn("hvac maintenance", summary.evidence_terms)
-        self.assertIn("building automation systems", summary.evidence_terms)
+        self.assertEqual(
+            {item["document_number"] for item in summary.sample_awards},
+            {"AWD-BRIDGE-2", "AWD-ROAD-1"},
+        )
+        self.assertEqual(summary.award_value_range["min"], 640000)
+        self.assertEqual(summary.award_value_range["median"], 910000)
+        self.assertEqual(summary.award_value_range["max"], 1180000)
+        self.assertEqual(
+            {item["name"] for item in summary.common_divisions},
+            {"Engineering & Construction Services", "Transportation Services"},
+        )
+        self.assertIn("road repairs", summary.evidence_terms)
+        self.assertIn("traffic staging", summary.evidence_terms)
         self.assertTrue(any("2 past awarded contracts" in line for line in summary.evidence))
 
     def test_summary_handles_no_value_matches(self) -> None:
@@ -80,8 +73,8 @@ class HistoricalOpportunitySummaryTests(unittest.TestCase):
                 _award(
                     "AWD-NOVALUE",
                     0,
-                    "Parks, Forestry and Recreation",
-                    "Emergency repairs and preventative maintenance for HVAC systems.",
+                    "Transportation Services",
+                    "Road repairs, sidewalk repairs, and curb repair.",
                 )
             ],
         )
@@ -117,8 +110,8 @@ def _award(
     award_value: float,
     division: str,
     description: str,
-    category: str = "Goods and Services",
-    solicitation_type: str = "Request for Quotation",
+    category: str = "Construction Services",
+    solicitation_type: str = "Request for Tender",
     buyer: str = "",
 ) -> AwardRecord:
     raw = {"Buyer Name": buyer} if buyer else {}

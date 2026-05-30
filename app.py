@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import argparse
 import json
 import mimetypes
 import os
+import subprocess
+import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
@@ -83,10 +86,53 @@ class ContractRadarHandler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
+    args = _parse_args()
+    nemotron_process = None
+    if args.with_nemotron or args.nemotron_setup_only:
+        from contract_radar.nemotron_runtime import (
+            NemotronRuntimeError,
+            ensure_local_nemotron,
+            stop_managed_nemotron,
+        )
+
+        try:
+            nemotron_process = ensure_local_nemotron(setup_only=args.nemotron_setup_only)
+        except (NemotronRuntimeError, subprocess.CalledProcessError) as exc:
+            print(f"Nemotron startup failed: {exc}", file=sys.stderr)
+            print("Start without Nemotron using `python3 app.py`, or retry after fixing the setup issue.", file=sys.stderr)
+            raise SystemExit(1) from exc
+
+        if args.nemotron_setup_only:
+            return
+
     server = ThreadingHTTPServer((HOST, PORT), ContractRadarHandler)
     print(f"Live Contract Radar running at http://{HOST}:{PORT}")
+    if args.with_nemotron:
+        print(f"Nemotron base URL: {os.environ.get('NIM_BASE_URL')}")
     print("Press Ctrl+C to stop.")
-    server.serve_forever()
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\nStopping Live Contract Radar.")
+    finally:
+        server.server_close()
+        if args.with_nemotron:
+            stop_managed_nemotron(nemotron_process)
+
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Run the Live Contract Radar web app.")
+    parser.add_argument(
+        "--with-nemotron",
+        action="store_true",
+        help="On Linux DGX Spark, build/download/start local Nemotron via llama.cpp before launching the app.",
+    )
+    parser.add_argument(
+        "--nemotron-setup-only",
+        action="store_true",
+        help="Build/download the local Nemotron runtime, then exit without starting the app.",
+    )
+    return parser.parse_args()
 
 
 if __name__ == "__main__":

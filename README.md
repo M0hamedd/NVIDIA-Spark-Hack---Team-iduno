@@ -35,6 +35,20 @@ Then open the local URL printed by the server, usually:
 http://127.0.0.1:8080
 ```
 
+To run the DGX Spark demo with local Nemotron, use:
+
+```bash
+python3 app.py --with-nemotron
+```
+
+The first run builds `llama.cpp`, downloads the Nemotron GGUF model, starts an OpenAI-compatible model server on `http://127.0.0.1:30000/v1`, then launches the app on `http://127.0.0.1:8080`. Later runs reuse the downloaded model and built server. Setup files live outside the repo in `~/.contract-radar/nemotron`, and model-server logs are written to `~/.contract-radar/nemotron/llama-server.log`.
+
+If you want to do the slow setup ahead of the demo:
+
+```bash
+python3 app.py --nemotron-setup-only
+```
+
 For the fastest deterministic DGX Spark/local smoke test, use the cached or fallback data path:
 
 ```powershell
@@ -77,6 +91,8 @@ $env:NIM_BASE_URL="http://localhost:8000/v1"
 $env:NIM_MODEL="nvidia/llama-3.1-nemotron-70b-instruct"
 $env:NIM_API_KEY=""
 $env:NIM_PREFLIGHT_TIMEOUT_SECONDS="0.2"
+$env:CONTRACT_RADAR_NEMOTRON_PORT="30000"
+$env:CONTRACT_RADAR_NEMOTRON_HOME="$HOME/.contract-radar/nemotron"
 ```
 
 - `CONTRACT_RADAR_CACHE_DIR`: directory for cached Toronto Open Data responses.
@@ -85,6 +101,8 @@ $env:NIM_PREFLIGHT_TIMEOUT_SECONDS="0.2"
 - `NIM_MODEL`: local Nemotron model identifier served by NIM.
 - `NIM_API_KEY`: optional key if the local NIM endpoint requires one.
 - `NIM_PREFLIGHT_TIMEOUT_SECONDS`: fast preflight timeout before falling back to deterministic extraction.
+- `CONTRACT_RADAR_NEMOTRON_PORT`: port used by `python3 app.py --with-nemotron`.
+- `CONTRACT_RADAR_NEMOTRON_HOME`: local directory for the managed llama.cpp build, Hugging Face CLI venv, model file, and server log.
 
 NIM/Nemotron is optional for local reliability but should be active during the judged Spark run if RAPIDS is not the active NVIDIA path. When `NIM_BASE_URL` is reachable, the app asks a local Nemotron model for structured fields such as requirements, credentials, scope clues, deadlines, and concise evidence wording for already-shortlisted opportunities. Nemotron does **not** make the final `Pursue`, `Review`, `Monitor`, or `Skip` decision. If the endpoint is missing, offline, or returns an unusable response, the app fast-fails to deterministic extraction, ranking, evidence, and fallback summary wording.
 

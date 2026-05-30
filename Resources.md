@@ -1,63 +1,68 @@
-# Toronto Open Data Datasets To Obtain
+# Toronto Open Data Resources
 
-This project should use Toronto open data to score service-area opportunity for small service businesses such as window washing, HVAC, cleaning, landscaping, pest control, and maintenance crews.
+Live Contract Radar uses Toronto Open Data to turn public procurement records into small-business opportunity decisions.
 
-## Core datasets
+V1 uses public Toronto Open Data procurement feeds. These feeds are the proof source for the MVP, not a claim that the app covers every possible live City bid source. The product story is a local bid intelligence engine that can later ingest more sources through the same filtering, award-comparison, and evidence pipeline.
 
-| Priority | Dataset | Package name | Why it matters |
-| --- | --- | --- | --- |
-| Must have | [Building Permits - Active Permits](https://open.toronto.ca/dataset/building-permits-active-permits/) | `building-permits-active-permits` | Best signal for current construction, renovation, new building work, and near-term service demand. |
-| Must have | [Building Permits - Cleared Permits](https://open.toronto.ca/dataset/building-permits-cleared-permits/) | `building-permits-cleared-permits` | Historical construction trend signal. Use it to learn which neighbourhoods are growing or renovating over time. |
-| Must have | [Development Pipeline](https://open.toronto.ca/dataset/development-pipeline/) | `development-pipeline` | Future growth signal: where residential, mixed-use, and commercial capacity is expected to appear. |
-| Must have | [Development Applications](https://open.toronto.ca/dataset/development-applications/) | `development-applications` | Earlier-stage future demand signal before construction permits appear. |
-| Must have | [Neighbourhood Profiles](https://open.toronto.ca/dataset/neighbourhood-profiles/) | `neighbourhood-profiles` | Income, housing, household, population, and demographic context for estimating demand and ability to pay. |
-| Must have | [Neighbourhoods](https://open.toronto.ca/dataset/neighbourhoods/) | `neighbourhoods` | Boundary layer for aggregating permit, income, route, and demand scores into explainable service zones. |
-| Must have | [Toronto Centreline (TCL)](https://open.toronto.ca/dataset/toronto-centreline-tcl/) | `toronto-centreline-tcl` | Road network base for routing, drive-time estimates, and crew coverage analysis. |
-| Must have | [Address Points (Municipal) - Toronto One Address Repository](https://open.toronto.ca/dataset/address-points-municipal-toronto-one-address-repository/) | `address-points-municipal-toronto-one-address-repository` | Helps geocode and spatially join permit records, properties, and service locations. |
+## Core V1 Datasets
 
-## Strong additions
+| Dataset | Link | Why it matters |
+| --- | --- | --- |
+| Toronto Bids Solicitations | [Open Data](https://open.toronto.ca/dataset/tobids-all-open-solicitations/) | Main current open-data opportunity feed. The system scans this for active City solicitations and classifies them as `Pursue`, `Review`, `Monitor`, or `Skip`. |
+| Toronto Bids Awarded Contracts | [Open Data](https://open.toronto.ca/dataset/tobids-awarded-contracts/) | Historical award evidence. The system compares active opportunities to similar past awards to estimate whether a contract looks realistic for a small business. |
 
-| Priority | Dataset | Package name | Why it matters |
-| --- | --- | --- | --- |
-| Should have | [Municipal Licensing and Standards - Business Licences and Permits](https://open.toronto.ca/dataset/municipal-licensing-and-standards-business-licences-and-permits/) | `municipal-licensing-and-standards-business-licences-and-permits` | Useful for estimating business density, possible customers, and competitor/prospect locations. |
-| Should have | [Property Boundaries](https://open.toronto.ca/dataset/property-boundaries/) | `property-boundaries` | Parcel-level geometry for spatial joins, density, and property-level opportunity analysis. |
-| Should have | [Zoning By-law](https://open.toronto.ca/dataset/zoning-by-law/) | `zoning-by-law` | Helps distinguish residential, commercial, mixed-use, industrial, height, and density potential. |
-| Should have | [Committee of Adjustment Applications](https://open.toronto.ca/dataset/committee-of-adjustment-applications/) | `committee-of-adjustment-applications` | Good signal for small-scale infill, additions, and renovations that may create local service demand. |
-| Should have | [Business Improvement Areas](https://open.toronto.ca/dataset/business-improvement-areas/) | `business-improvement-areas` | Useful for identifying dense commercial corridors and local business clusters. |
-| Should have | [Parking Lot Facilities](https://open.toronto.ca/dataset/parking-lot-facilities/) | `parking-lot-facilities` | Useful for operational feasibility: where crews can park near target service zones. |
-| Should have | [Green P Parking](https://open.toronto.ca/dataset/green-p-parking/) | `green-p-parking` | Another parking/crew logistics layer for route planning and service-zone practicality. |
+## Strong Stretch Datasets
 
-## Optional datasets for richer scoring
+| Dataset | Link | Why it matters |
+| --- | --- | --- |
+| Toronto Bids Non-Competitive Contracts | [Open Data](https://open.toronto.ca/dataset/tobids-non-competitive-contracts/) | Adds purchasing pattern evidence, especially for smaller or specialized work that may not look like a large competitive RFP. |
+| Procurement Pipeline | [Open Data](https://open.toronto.ca/dataset/procurement-pipeline/) | Lets the app create early monitor alerts before opportunities become active solicitations. Useful for "prepare now" recommendations. |
 
-| Priority | Dataset | Package name | Why it matters |
-| --- | --- | --- | --- |
-| Optional | [311 Service Requests - Customer Initiated](https://open.toronto.ca/dataset/311-service-requests-customer-initiated/) | `311-service-requests-customer-initiated` | Proxy for civic maintenance issues and neighbourhood service intensity. |
-| Optional | [Traffic Signal Vehicle and Pedestrian Volumes](https://open.toronto.ca/dataset/traffic-signal-vehicle-and-pedestrian-volumes/) | `traffic-signal-vehicle-and-pedestrian-volumes` | Helps estimate congestion and operational friction for service crews. |
-| Optional | [Traffic Volumes - Multimodal Intersection Turning Movement Counts](https://open.toronto.ca/dataset/traffic-volumes-at-intersections-for-all-modes/) | `traffic-volumes-at-intersections-for-all-modes` | More detailed movement data for route difficulty and travel-time penalties. |
-| Optional | [Current Value Assessment (CVA) Tax Impact Residential Properties](https://open.toronto.ca/dataset/current-value-assessment-cva-tax-impact-residential-properties/) | `current-value-assessment-cva-tax-impact-residential-properties` | Possible proxy for property value and willingness to pay, if the granularity is useful. |
-| Optional | [Street Tree Data](https://open.toronto.ca/dataset/street-tree-data/) | `street-tree-data` | Useful for vertical-specific opportunities like gutter cleaning, landscaping, window obstruction, and property maintenance. |
-| Optional | [Heritage Register](https://open.toronto.ca/dataset/heritage-register/) | `heritage-register` | Useful for specialized service constraints and premium maintenance opportunities around older buildings. |
-| Optional | [School Locations - All Types](https://open.toronto.ca/dataset/school-locations-all-types/) | `school-locations-all-types` | Useful for B2B service prospects and neighbourhood anchors. |
-| Optional | [Apartment Building Registration](https://open.toronto.ca/dataset/apartment-building-registration/) | `apartment-building-registration` | Strong prospect list for window washing, HVAC, pest control, cleaning, and property maintenance if available and current. |
+## Supporting Economic Datasets
 
-## Recommended first prototype bundle
+| Dataset | Link | Why it matters |
+| --- | --- | --- |
+| Municipal Licensing and Standards - Business Licences and Permits | [Open Data](https://open.toronto.ca/dataset/municipal-licensing-and-standards-business-licences-and-permits/) | Helps map Toronto business categories, possible local vendor types, and future matching between opportunities and nearby businesses. |
+| Business Improvement Areas | [Open Data](https://open.toronto.ca/dataset/business-improvement-areas/) | Supports future BIA/corridor alerting so groups of small businesses can receive relevant opportunity notifications. |
+| Business Incubation | [Open Data](https://open.toronto.ca/dataset/business-incubation/) | Helps recommend support programs when a business is close to bid-ready but needs help with procurement, operations, or growth readiness. |
 
-Start with these 8 datasets:
+## Stretch Opportunity Datasets
 
-1. `building-permits-active-permits`
-2. `building-permits-cleared-permits`
-3. `development-pipeline`
-4. `development-applications`
-5. `neighbourhood-profiles`
-6. `neighbourhoods`
-7. `toronto-centreline-tcl`
-8. `municipal-licensing-and-standards-business-licences-and-permits`
+| Dataset | Link | Why it matters |
+| --- | --- | --- |
+| Festivals & Events | [Open Data](https://open.toronto.ca/dataset/festivals-events/) | Future expansion for event vendors, caterers, rentals, cleaning, security, and pop-up businesses. |
+| Library Branch Programs and Events Feed | [Open Data](https://open.toronto.ca/dataset/library-branch-programs-and-events-feed/) | Future expansion for educators, workshop providers, artists, tutors, and community service providers. |
+| Library Branch Space Rentals | [Open Data](https://open.toronto.ca/dataset/library-branch-space-rentals/) | Future expansion for small businesses testing services before leasing storefront or studio space. |
+| CafeTO Locations | [Open Data](https://open.toronto.ca/dataset/cafeto-curb-lane-parklet-cafe-locations/) | Future expansion for restaurant, patio, streetscape, maintenance, and hospitality-related businesses. |
+| DineSafe | [Open Data](https://open.toronto.ca/dataset/dinesafe/) | Future expansion for restaurant compliance readiness and bid-readiness checks for food-service vendors. |
+| BodySafe | [Open Data](https://open.toronto.ca/dataset/bodysafe/) | Future expansion for salons, spas, tattoo shops, and other personal-service compliance readiness. |
 
-This is enough to build a strong hackathon demo:
+## Later Procurement Source Expansion
 
-- Score current demand from active permits.
-- Score growth momentum from cleared permits.
-- Score future expansion from development applications and pipeline data.
-- Score customer quality from neighbourhood profiles.
-- Score operational feasibility from road geography.
-- Generate an agentic recommendation report for a specific small business profile.
+Keep these as future work until the Toronto Open Data demo is excellent:
+
+- **Toronto Bids Portal / SAP Ariba:** Source-of-truth path for City opportunities beyond the open-data export.
+- **CanadaBuys:** Federal tender opportunities and federal award history.
+- **Ontario Tenders:** Ontario government and broader public-sector opportunities.
+- **TTC / MERX:** Toronto transit solicitations, results, and awarded solicitations posted through MERX.
+- **Nearby municipalities:** Mississauga, Brampton, Vaughan, Markham, Richmond Hill, Peel, York, Durham, Halton, Hamilton, and other GTA buyers.
+- **bids&tenders / Link2Build:** Construction-heavy and municipal Ontario opportunities.
+
+## Official Nemotron/NIM Resources
+
+These are the official NVIDIA references for the optional local structured extraction layer. They support the implementation story without changing the product boundary: Nemotron/NIM extracts requirements and evidence fields from shortlisted contracts; the deterministic bid engine owns the final `Pursue`, `Review`, `Monitor`, or `Skip` labels.
+
+| Resource | Link | Why it matters |
+| --- | --- | --- |
+| NVIDIA-NeMo/Nemotron GitHub | [GitHub](https://github.com/NVIDIA-NeMo/Nemotron) | Official Nemotron repository and model family reference. |
+| Nemotron Usage Cookbook | [Docs](https://docs.nvidia.com/nemotron/latest/usage-cookbook/README.html) | Practical guidance for using Nemotron models in local and hosted workflows. |
+| NVIDIA NIM for LLM API Reference | [Docs](https://docs.nvidia.com/nim/large-language-models/latest/api-reference.html) | API reference for calling NIM-hosted large language models through an OpenAI-compatible interface. |
+| NVIDIA NIM Structured Generation Reference | [Docs](https://docs.nvidia.com/nim/vision-language-models/1.1.0/structured-generation.html) | Reference for schema-constrained outputs, which matches the requirement-extraction pattern used by the demo. |
+
+## Dataset Tiers For V1 Planning
+
+- **Must build:** Toronto Bids Solicitations, Toronto Bids Awarded Contracts.
+- **Strong stretch:** Toronto Bids Non-Competitive Contracts, Procurement Pipeline.
+- **Later expansion:** Business Licences, BIAs, Business Incubation, events, libraries, CafeTO, DineSafe, BodySafe, plus additional procurement feeds listed above.
+
+The V1 demo should stay focused on procurement. Extra datasets should support the story only if they make the owner decision clearer.

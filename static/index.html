@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Live Contract Radar</title>
+    <link rel="stylesheet" href="/static/styles.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Economic Systems</p>
+          <h1>Live Contract Radar</h1>
+        </div>
+        <div class="system-strip" aria-live="polite">
+          <span id="healthStatus" class="status-pill">Checking system</span>
+          <span id="gpuStatus" class="system-chip">DGX Spark: pending</span>
+          <span id="nemotronStatus" class="system-chip">Nemotron: pending</span>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <aside class="profile-panel" aria-label="Business profile">
+          <div class="panel-heading">
+            <p class="eyebrow">Business Profile</p>
+            <h2 id="profileName">GTA Mechanical &amp; Controls Ltd.</h2>
+          </div>
+
+          <dl class="profile-facts">
+            <div>
+              <dt>Type</dt>
+              <dd id="profileType">Commercial HVAC and building automation</dd>
+            </div>
+            <div>
+              <dt>Base</dt>
+              <dd id="profileBase">Toronto, GTA</dd>
+            </div>
+            <div>
+              <dt>Team</dt>
+              <dd id="profileTeam">18 people</dd>
+            </div>
+            <div>
+              <dt>Capacity</dt>
+              <dd id="profileCapacity">8 city sites/day, up to $750K</dd>
+            </div>
+            <div>
+              <dt>Active Bids</dt>
+              <dd id="profilePursuits">2 active, limit 3</dd>
+            </div>
+          </dl>
+
+          <div class="profile-block">
+            <h3>Priority Mode</h3>
+            <fieldset class="priority-control" aria-label="Priority mode">
+              <label>
+                <input type="radio" name="priorityMode" value="best_win_chance" checked>
+                <span>Best Win Chance</span>
+              </label>
+              <label>
+                <input type="radio" name="priorityMode" value="best_fit">
+                <span>Best Fit</span>
+              </label>
+              <label>
+                <input type="radio" name="priorityMode" value="highest_value">
+                <span>Highest Value</span>
+              </label>
+            </fieldset>
+          </div>
+
+          <div class="profile-block">
+            <h3>Capabilities</h3>
+            <div id="profileSkills" class="tag-grid"></div>
+          </div>
+
+          <div class="profile-block">
+            <h3>Ready Documents</h3>
+            <div id="profileDocs" class="tag-grid compact"></div>
+          </div>
+
+          <div class="action-stack">
+            <button id="scanButton" class="primary-action" type="button">Run Live Scan</button>
+            <button id="simulateButton" class="secondary-action" type="button">Simulate Next Day</button>
+            <button id="approveButton" class="approve-action" type="button" disabled>Approve Draft</button>
+          </div>
+        </aside>
+
+        <section class="main-panel" aria-label="Opportunity workspace">
+          <nav class="view-tabs" aria-label="Views">
+            <button id="ownerTab" class="tab-button active" type="button">Owner View</button>
+            <button id="evidenceTab" class="tab-button" type="button">Evidence View</button>
+          </nav>
+
+          <section id="ownerView" class="view-section active" aria-label="Owner view">
+            <div class="summary-band">
+              <div>
+                <p class="eyebrow">Current Decision</p>
+                <h2 id="decisionHeadline">Ready to scan city opportunities</h2>
+              </div>
+              <div id="lastRun" class="last-run">No scan yet</div>
+            </div>
+
+            <div class="split-grid">
+              <section class="list-section" aria-label="Top opportunities">
+                <div class="section-heading">
+                  <h3>Top Opportunities</h3>
+                  <span id="topCount" class="count-pill">0</span>
+                </div>
+                <div id="topOpportunities" class="card-list empty-list">
+                  <p>Run a scan to find contracts worth acting on.</p>
+                </div>
+              </section>
+
+              <section class="list-section" aria-label="Monitor list">
+                <div class="section-heading">
+                  <h3>Monitor</h3>
+                  <span id="watchCount" class="count-pill">0</span>
+                </div>
+                <div id="watchlist" class="card-list empty-list">
+                  <p>Relevant but not ready opportunities will appear here.</p>
+                </div>
+              </section>
+            </div>
+
+            <section class="timeline-section" aria-label="Simulation timeline">
+              <div class="section-heading">
+                <h3>Monitoring Timeline</h3>
+                <span id="timelineCount" class="count-pill">0</span>
+              </div>
+              <div id="timeline" class="timeline empty-list">
+                <p>Run a simulation to see alerts, deadline pressure, and approval events.</p>
+              </div>
+            </section>
+
+            <section class="packet-section" aria-label="Approval packet">
+              <div class="section-heading">
+                <h3>Approval Packet</h3>
+                <span id="packetStatus" class="count-pill">Not prepared</span>
+              </div>
+              <div id="packetOutput" class="packet-output empty-list">
+                <p>Select an opportunity and approve the draft to prepare the packet.</p>
+              </div>
+            </section>
+          </section>
+
+          <section id="evidenceView" class="view-section" aria-label="Evidence view">
+            <div class="metrics-grid">
+              <div class="metric-tile">
+                <span>Solicitations</span>
+                <strong id="metricSolicitations">0</strong>
+              </div>
+              <div class="metric-tile">
+                <span>Awards Compared</span>
+                <strong id="metricAwards">0</strong>
+              </div>
+              <div class="metric-tile">
+                <span>Rejected</span>
+                <strong id="metricRejected">0</strong>
+              </div>
+              <div class="metric-tile">
+                <span>Runtime</span>
+                <strong id="metricRuntime">0 ms</strong>
+              </div>
+              <div class="metric-tile">
+                <span>Records/Sec</span>
+                <strong id="metricRecordsPerSecond">0</strong>
+              </div>
+              <div class="metric-tile">
+                <span>Model Calls Avoided</span>
+                <strong id="metricModelCallsAvoided">0</strong>
+              </div>
+              <div class="metric-tile">
+                <span>NVIDIA Path</span>
+                <strong id="metricNvidiaPath">Fallback</strong>
+              </div>
+              <div class="metric-tile">
+                <span>Backtest Insight</span>
+                <strong id="metricBacktestInsight">0</strong>
+              </div>
+            </div>
+
+            <div class="split-grid evidence-grid">
+              <section class="list-section" aria-label="Pipeline details">
+                <div class="section-heading">
+                  <h3>Judge Pipeline</h3>
+                  <span id="engineLabel" class="count-pill">Python</span>
+                </div>
+                <div id="pipelineDetails" class="pipeline-list empty-list">
+                  <p>Evidence appears after a scan.</p>
+                </div>
+              </section>
+
+              <section class="list-section" aria-label="Rejected examples">
+                <div class="section-heading">
+                  <h3>Skipped Examples</h3>
+                  <span id="skipCount" class="count-pill">0</span>
+                </div>
+                <div id="skippedExamples" class="card-list empty-list">
+                  <p>Rejected opportunities will show why the system saves owner time.</p>
+                </div>
+              </section>
+            </div>
+
+            <section class="list-section full-width" aria-label="Judge scorecard">
+              <div class="section-heading">
+                <h3>Judge Scoreboard</h3>
+                <span id="scorecardStatus" class="count-pill">Waiting</span>
+              </div>
+              <div id="scorecardDetails" class="scorecard-grid empty-list">
+                <p>Run a scan to see NVIDIA path, model efficiency, false-positive rejection, and historical insight proof.</p>
+              </div>
+            </section>
+
+            <section class="list-section full-width" aria-label="All evaluated opportunities">
+              <div class="section-heading">
+                <h3>Evaluated Stream</h3>
+                <span id="evaluatedCount" class="count-pill">0</span>
+              </div>
+              <div id="evaluatedStream" class="table-list empty-list">
+                <p>Run a live scan to inspect the ranked stream.</p>
+              </div>
+            </section>
+          </section>
+        </section>
+      </main>
+    </div>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <script src="/static/app.js"></script>
+  </body>
+</html>

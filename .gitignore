@@ -6,3 +6,4 @@ venv/
 data/cache/
 data/output/
 .env
+.codex_app_server_*.pid

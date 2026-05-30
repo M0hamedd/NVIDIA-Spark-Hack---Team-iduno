@@ -1,0 +1,189 @@
+# Live Contract Radar Demo Script
+
+Target length: **3-5 minutes**.
+
+Demo goal: show judges that this is a live/daily procurement monitoring and decision system, not a generic chatbot.
+
+## 0:00-0:25 - Hook
+
+Narration:
+
+> Small businesses can do real work for the City, but they usually do not have a procurement team watching Toronto Bids every morning. They miss opportunities because the language is dense, deadlines are easy to miss, and many contracts are too large or the wrong fit.
+
+Click:
+
+- Open the app.
+- Point to the default business profile: **GTA Mechanical & Controls Ltd.**.
+
+## 0:25-0:55 - Business Profile
+
+Narration:
+
+> Our demo business is a Toronto-area HVAC and building automation contractor. They handle preventative maintenance, BAS controls, boiler and chiller service, emergency repairs, and energy retrofit support for schools, libraries, recreation centers, and municipal facilities.
+
+Click:
+
+- Show profile details.
+- Highlight readiness: insurance, WSIB, HST, references.
+- Highlight limits: no road paving, legal services, pure software, food supply, landscaping, or oversized design/build construction.
+
+## 0:55-1:35 - Live Scan
+
+Narration:
+
+> Now we scan public Toronto Open Data procurement records and compare them against historical awarded contracts. This V1 feed is honest open-data coverage, not every possible live City bid source. The first pass is deterministic and fast: remove expired items, reject wrong categories, reject oversized work, and keep only candidates worth deeper analysis.
+
+Click:
+
+- Click **Run Live Scan**.
+- Show timestamp and source status.
+- Show record counts:
+  - solicitations scanned
+  - awards compared
+  - opportunities rejected
+  - viable candidates
+
+Judge emphasis:
+
+> The LLM is not looking at every record. DGX Spark does the local filtering first, then Nemotron/NIM extracts structured requirements only from shortlisted contracts.
+
+## 1:35-2:15 - Rejections Prove Selectivity
+
+Narration:
+
+> A search tool would just show anything with loose keyword overlap. We intentionally show the rejections because they prove the system is making business decisions.
+
+Click:
+
+- Open the rejection breakdown.
+- Point to examples:
+  - `Skip`: wrong service category
+  - `Skip`: too large or outside scope for the contractor
+  - `Review`: relevant work, but capacity or credential gap
+  - `Monitor`: relevant but not ready to act on
+
+Judge emphasis:
+
+> The useful insight is knowing what not to waste time on.
+
+## 2:15-3:05 - Top Opportunity + Historical Awards
+
+Narration:
+
+> Here is the opportunity the system recommends. It is not just a keyword match. It matches the business capabilities, has enough time before closing, fits the contract type, and similar past awards are in a realistic range.
+
+Click:
+
+- Open the top `Pursue` or `Review` card.
+- Show:
+  - matched capabilities
+  - missing requirements
+  - capacity warning or clear pursuit load
+  - deadline
+  - buyer/division
+  - similar historical award range or insufficient-history notice
+
+Judge emphasis:
+
+> Nemotron helps turn dense contract language into structured requirements, but the deterministic bid engine owns the final Pursue, Review, Monitor, or Skip decision.
+
+## 3:05-3:45 - Judge Evidence View
+
+Narration:
+
+> The business owner sees a simple alert. For judges, we expose the system evidence so you can see the pipeline underneath.
+
+Click:
+
+- Switch to **Evidence View**.
+- Show:
+  - live/cache/fallback source status
+  - records scanned
+  - rejection counts
+  - runtime
+  - active NVIDIA path
+  - records per second
+  - model calls avoided
+  - matched terms
+  - historical award comparison
+  - false positives skipped
+  - similar awards grounded
+  - insight scorecard sentence
+  - visual stages from open data feed to recommendation
+  - DGX/Nemotron status
+  - structured extraction fallback status
+
+20-second scoreboard beat:
+
+> The important scoring proof is here: the system turned N raw records into K shortlisted contracts before Nemotron, avoided unnecessary model calls, skipped misleading false positives, grounded this decision in similar awards, and kept the business profile local on DGX Spark. If RAPIDS or local NIM is active, the active NVIDIA path is shown here; if not, the fallback reason is explicit.
+
+Judge emphasis:
+
+> This is where the performance and execution story lives: fast local scan, deterministic filtering, historical award comparison, selective structured extraction, model-call avoidance, and clear evidence.
+
+## 3:45-4:30 - Approval-Gated Packet
+
+Narration:
+
+> The agent does not submit anything on its own. The owner approves first. After approval, it prepares the packet: plain-English summary, checklist, missing requirements, SAP Ariba next steps, and a draft buyer email.
+
+Click:
+
+- Click **Approve Draft**.
+- Show generated packet.
+- Point to simulated receipt/status.
+
+Judge emphasis:
+
+> The product is action-oriented but safe: it prepares the owner to apply, and the submission is simulated for the demo.
+
+## 4:30-5:00 - Close
+
+Narration:
+
+> Live Contract Radar helps small businesses see which City opportunities are actually worth their time. It turns Toronto Open Data into a daily revenue signal: pursue, review, monitor, or skip.
+
+Final line:
+
+> A chatbot can explain a contract if you paste one in. This system monitors the procurement stream, filters it against a real business profile, compares historical awards, shows the evidence pipeline, and prepares the next action after approval.
+
+## Spark MVP Run Path
+
+Start the app:
+
+```powershell
+python app.py
+```
+
+For a stable no-internet demo:
+
+```powershell
+$env:CONTRACT_RADAR_CACHE_DIR="data/cache"
+$env:CONTRACT_RADAR_OFFLINE="1"
+python app.py
+```
+
+In a second terminal, verify the API:
+
+```powershell
+python scripts/smoke_api.py --base-url http://127.0.0.1:8080
+```
+
+Run the benchmark proof:
+
+```powershell
+python scripts/benchmark_pipeline.py --offline --repeat 100
+```
+
+The smoke test checks `/api/health`, `/api/scan`, `/api/simulate`, and `/api/approve`. The benchmark reports runtime, records/sec, shortlist reduction, model calls avoided, NVIDIA mode, false positives skipped, similar awards grounded, and the top insight sentence. Nemotron/NIM is optional for reliability; the judged Spark demo should show either active local NIM or active RAPIDS/cuDF. When available, Nemotron extracts requirements from shortlisted contracts; the deterministic bid engine owns `Pursue`, `Review`, `Monitor`, and `Skip`.
+
+## Future Source Expansion
+
+V1 proves the intelligence engine on Toronto Open Data. Later versions can connect more procurement feeds into the same bid/no-bid pipeline:
+
+- Toronto Bids Portal / SAP Ariba
+- CanadaBuys
+- Ontario Tenders
+- TTC / MERX
+- Nearby municipalities
+- bids&tenders / Link2Build

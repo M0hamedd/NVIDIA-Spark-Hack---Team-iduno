@@ -20,6 +20,7 @@ def simulate_month(scan_result: dict[str, Any], days: int = 30) -> list[dict[str
         start = start + timedelta(days=1)
     opportunities = _ordered_opportunities(scan_result)
     metrics = scan_result.get("metrics") or {}
+    profile = scan_result.get("business_profile") or {}
 
     timeline: list[dict[str, Any]] = [
         _event(
@@ -39,11 +40,7 @@ def simulate_month(scan_result: dict[str, Any], days: int = 30) -> list[dict[str
                 min(1, window_days - 1),
                 "no_matches",
                 "No owner action needed",
-                (
-                    "The next-day monitor found no realistic HVAC or building automation bids."
-                    if next_day_mode
-                    else "No realistic bid opportunities were found in this monitoring window."
-                ),
+                _no_match_message(profile, next_day_mode),
                 priority="low",
             )
         )
@@ -195,9 +192,16 @@ def _scan_message(metrics: dict[str, Any], opportunities: list[dict[str, Any]], 
     if next_day_mode:
         return (
             f"Next-day monitor checked {loaded} solicitations, compared {awards} historical awards, "
-            f"and surfaced {len(opportunities)} HVAC/BAS candidate(s)."
+            f"and surfaced {len(opportunities)} candidate(s)."
         )
     return f"Scanned {loaded} solicitations, compared {awards} historical awards, and tracked {len(opportunities)} candidate(s)."
+
+
+def _no_match_message(profile: dict[str, Any], next_day_mode: bool) -> str:
+    business_type = str(profile.get("business_type") or "this profile").strip()
+    if next_day_mode:
+        return f"The next-day monitor found no realistic bids for {business_type}."
+    return "No realistic bid opportunities were found in this monitoring window."
 
 
 def _sort_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:

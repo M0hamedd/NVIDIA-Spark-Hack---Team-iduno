@@ -37,6 +37,15 @@ GENERIC_MATCH_TERMS = {
     "mechanical repairs",
     "municipal/public facility service",
 }
+BROAD_SINGLE_MATCH_TERMS = {
+    "administration",
+    "management",
+    "support",
+    "public",
+    "municipal",
+    "facility",
+    "facilities",
+}
 
 
 def evaluate_opportunities(
@@ -71,7 +80,7 @@ def _evaluate_one(
     matched_terms = _matched_profile_terms(profile, solicitation)
     missing = _missing_capabilities(profile, solicitation)
     profile_blockers = set(missing)
-    type_complexity = _type_complexity(solicitation)
+    type_complexity = _type_complexity(profile, solicitation)
     text = _solicitation_text(solicitation)
 
     reasons: list[str] = []
@@ -182,7 +191,7 @@ def _evaluate_one(
         if profile_blockers:
             rejection_reasons.append("blocked capability mismatch")
 
-    if _contains_any(text, LARGE_SCOPE_TERMS) and matched_terms:
+    if _contains_any(text, _large_scope_terms(profile)) and matched_terms:
         missing.append("large project delivery capacity")
         rejection_reasons.append("large construction/design-build scope")
         rank_score -= 15
@@ -259,7 +268,7 @@ def _label(
     has_specific_match = _has_specific_match(matched_terms)
     if days_until_deadline is not None and 0 <= days_until_deadline < URGENCY_WINDOW_DAYS:
         return "Pursue" if rank_score >= 35 else "Monitor" if rank_score >= 25 else "Skip"
-    if rank_score >= 52 and has_specific_match:
+    if rank_score >= 50 and has_specific_match:
         return "Pursue"
     if rank_score >= 25:
         return "Monitor"
@@ -538,6 +547,8 @@ def _matched_profile_terms(profile: BusinessProfile, solicitation: Solicitation)
         skill_terms = meaningful_terms(skill)
         if not skill_terms:
             continue
+        if len(skill_terms) == 1 and next(iter(skill_terms)) in BROAD_SINGLE_MATCH_TERMS:
+            continue
         overlap = skill_terms & text_terms
         required_overlap = 1 if len(skill_terms) == 1 else 2
         if skill.lower() in text_lower or len(overlap) >= required_overlap:
@@ -562,13 +573,20 @@ def _category_or_description_fit(profile: BusinessProfile, solicitation: Solicit
     return len(profile_terms & solicitation_terms) >= 2
 
 
-def _type_complexity(solicitation: Solicitation) -> str:
+def _type_complexity(profile: BusinessProfile, solicitation: Solicitation) -> str:
     text = " ".join([solicitation.solicitation_type, solicitation.description, solicitation.category]).lower()
     if _contains_any(text, ACCESSIBLE_TYPES):
         return "accessible"
-    if _contains_any(text, COMPLEX_TYPES) or _contains_any(text, LARGE_SCOPE_TERMS):
+    if _contains_any(text, COMPLEX_TYPES) or _contains_any(text, _large_scope_terms(profile)):
         return "complex"
     return "standard"
+
+
+def _large_scope_terms(profile: BusinessProfile) -> set[str]:
+    profile_text = " ".join([profile.profile_id, profile.business_type, *profile.skills]).lower()
+    if any(term in profile_text for term in ("design", "engineering", "architect")):
+        return LARGE_SCOPE_TERMS - {"engineering", "architectural"}
+    return LARGE_SCOPE_TERMS
 
 
 def _contains_any(text: str, terms: set[str] | tuple[str, ...]) -> bool:

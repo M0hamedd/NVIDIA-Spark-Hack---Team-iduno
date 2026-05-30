@@ -1,34 +1,125 @@
-const DEFAULT_PROFILE = {
-  name: "GTA Mechanical & Controls Ltd.",
-  business_type: "commercial HVAC and building automation contractor",
-  base_location: "Toronto, GTA",
-  team_size: 18,
-  max_contract_value: 750000,
-  max_sites_per_day: 8,
-  active_pursuit_count: 2,
-  max_active_pursuits: 3,
-  service_area: "Toronto",
-  skills: [
-    "HVAC maintenance",
-    "building automation systems",
-    "BAS controls",
-    "boiler service",
-    "chiller service",
-    "preventative maintenance",
-    "emergency repair",
-    "energy retrofit support",
-    "municipal facility service"
-  ],
-  ready_documents: ["insurance", "WSIB", "HST", "references", "technician certifications"],
-  missing_capabilities: [
-    "kitchen equipment",
-    "road paving",
-    "legal services",
-    "food supply",
-    "large design/build construction"
-  ],
-  response_days_available: 12
+const SUPPORTED_PROFILES = {
+  design_engineering: {
+    profile_id: "design_engineering",
+    label: "Design & Engineering",
+    name: "CivicWorks Design Studio",
+    business_type: "municipal design, engineering, planning, and contract administration firm",
+    base_location: "Toronto, GTA",
+    team_size: 15,
+    max_contract_value: 900000,
+    max_sites_per_day: 3,
+    active_pursuit_count: 2,
+    max_active_pursuits: 4,
+    service_area: "Toronto",
+    skills: [
+      "professional consulting engineering services",
+      "preliminary design",
+      "detailed design",
+      "construction contract administration",
+      "construction inspection",
+      "municipal planning studies",
+      "park and public realm design",
+      "accessibility upgrades",
+      "facility condition assessments",
+      "geotechnical coordination",
+      "environmental assessment support"
+    ],
+    ready_documents: ["insurance", "WSIB", "HST", "professional references", "licensed engineer roster"],
+    missing_capabilities: [
+      "construction services",
+      "general contractor",
+      "road paving",
+      "pavement markings",
+      "supply and custom application",
+      "landscaping construction",
+      "locksmith",
+      "door hardware",
+      "kitchen smallwares",
+      "HVAC maintenance",
+      "food supply",
+      "software implementation"
+    ],
+    response_days_available: 14
+  },
+  parks_landscape: {
+    profile_id: "parks_landscape",
+    label: "Parks & Landscape",
+    name: "Greenline Parks & Landscape Ltd.",
+    business_type: "parks, playground, landscaping, arborist, and public realm contractor",
+    base_location: "Toronto, GTA",
+    team_size: 16,
+    max_contract_value: 650000,
+    max_sites_per_day: 6,
+    active_pursuit_count: 1,
+    max_active_pursuits: 3,
+    service_area: "Toronto",
+    skills: [
+      "park improvements",
+      "playground installation",
+      "splash pad repairs",
+      "landscaping",
+      "tree and arborist services",
+      "trail repairs",
+      "sports field maintenance",
+      "topsoil supply",
+      "planting",
+      "site furnishings",
+      "fencing",
+      "public realm maintenance"
+    ],
+    ready_documents: ["insurance", "WSIB", "HST", "references", "arborist certificates"],
+    missing_capabilities: [
+      "professional engineering services",
+      "architectural design",
+      "major road construction",
+      "watermain replacement",
+      "sewer rehabilitation",
+      "software implementation",
+      "food supply"
+    ],
+    response_days_available: 12
+  },
+  building_mechanical: {
+    profile_id: "building_mechanical",
+    label: "Building & Mechanical",
+    name: "GTA Mechanical & Building Services Ltd.",
+    business_type: "municipal building maintenance, HVAC, plumbing, doors, washrooms, and mechanical services contractor",
+    base_location: "Toronto, GTA",
+    team_size: 18,
+    max_contract_value: 750000,
+    max_sites_per_day: 8,
+    active_pursuit_count: 2,
+    max_active_pursuits: 3,
+    service_area: "Toronto",
+    skills: [
+      "HVAC maintenance",
+      "building automation systems",
+      "BAS controls",
+      "boiler service",
+      "chiller service",
+      "plumbing repairs",
+      "door hardware services",
+      "washroom repairs",
+      "preventative maintenance",
+      "emergency repair",
+      "municipal facility service",
+      "small building repairs"
+    ],
+    ready_documents: ["insurance", "WSIB", "HST", "references", "technician certifications"],
+    missing_capabilities: [
+      "road paving",
+      "major civil construction",
+      "pure software implementation",
+      "food supply",
+      "legal services",
+      "major design/build construction"
+    ],
+    response_days_available: 12
+  }
 };
+
+const DEFAULT_PROFILE_ID = "design_engineering";
+const DEFAULT_PROFILE = SUPPORTED_PROFILES[DEFAULT_PROFILE_ID];
 
 const PRIORITY_LABELS = {
   best_win_chance: "Best Win Chance",
@@ -41,13 +132,15 @@ const state = {
   scan: null,
   selectedOpportunityId: "",
   activeView: "owner",
-  priorityMode: "best_win_chance"
+  priorityMode: "best_win_chance",
+  selectedProfileId: DEFAULT_PROFILE_ID
 };
 
 const $ = (id) => document.getElementById(id);
 
 document.addEventListener("DOMContentLoaded", () => {
-  renderProfile(DEFAULT_PROFILE);
+  renderProfileSelector();
+  renderProfile(currentProfile());
   bindEvents();
   checkHealth();
 });
@@ -58,6 +151,15 @@ function bindEvents() {
   $("approveButton").addEventListener("click", approveDraft);
   $("ownerTab").addEventListener("click", () => setView("owner"));
   $("evidenceTab").addEventListener("click", () => setView("evidence"));
+  document.querySelectorAll('input[name="supportedProfile"]').forEach((input) => {
+    input.addEventListener("change", () => {
+      state.selectedProfileId = getSelectedProfileId();
+      state.selectedOpportunityId = "";
+      state.scan = null;
+      renderProfile(currentProfile());
+      resetWorkspace(`${currentProfile().label} selected`);
+    });
+  });
   document.querySelectorAll('input[name="priorityMode"]').forEach((input) => {
     input.addEventListener("change", () => {
       state.priorityMode = getPriorityMode();
@@ -89,7 +191,8 @@ async function runScan(refresh) {
   setBusy(true, "Scanning live procurement data");
   try {
     const result = await apiPost("/api/scan", {
-      business_profile: DEFAULT_PROFILE,
+      profile_id: getSelectedProfileId(),
+      business_profile: currentProfile(),
       priority_mode: getPriorityMode(),
       refresh
     });
@@ -105,7 +208,8 @@ async function runSimulation() {
   setBusy(true, "Simulating next monitoring day");
   try {
     const result = await apiPost("/api/simulate", {
-      business_profile: DEFAULT_PROFILE,
+      profile_id: getSelectedProfileId(),
+      business_profile: currentProfile(),
       priority_mode: getPriorityMode(),
       days: 1
     });
@@ -126,7 +230,8 @@ async function approveDraft() {
   setBusy(true, "Preparing approval packet");
   try {
     const result = await apiPost("/api/approve", {
-      business_profile: DEFAULT_PROFILE,
+      profile_id: getSelectedProfileId(),
+      business_profile: currentProfile(),
       approved: true,
       opportunity_id: state.selectedOpportunityId
     });
@@ -142,27 +247,80 @@ async function approveDraft() {
 
 function ingestResult(result, message) {
   state.scan = result;
+  state.selectedProfileId = (result.business_profile && result.business_profile.profile_id) || state.selectedProfileId;
   const top = result.top_opportunities || [];
   const watch = result.watchlist || [];
   const selected = top[0] || watch[0] || null;
   state.selectedOpportunityId = selected ? getOpportunityId(selected) : "";
 
-  renderProfile(result.business_profile || DEFAULT_PROFILE);
+  renderProfile(result.business_profile || currentProfile());
   renderOwner(result);
   renderEvidence(result);
   $("approveButton").disabled = !state.selectedOpportunityId;
   showToast(message);
 }
 
+function renderProfileSelector() {
+  const container = $("profileOptions");
+  if (!container) {
+    return;
+  }
+  container.innerHTML = Object.values(SUPPORTED_PROFILES).map((profile) => `
+    <label>
+      <input type="radio" name="supportedProfile" value="${escapeHtml(profile.profile_id)}" ${profile.profile_id === state.selectedProfileId ? "checked" : ""}>
+      <span>${escapeHtml(profile.label)}</span>
+    </label>
+  `).join("");
+}
+
 function renderProfile(profile) {
-  $("profileName").textContent = profile.name || DEFAULT_PROFILE.name;
-  $("profileType").textContent = titleCase(profile.business_type || DEFAULT_PROFILE.business_type);
-  $("profileBase").textContent = profile.base_location || DEFAULT_PROFILE.base_location;
-  $("profileTeam").textContent = `${profile.team_size || DEFAULT_PROFILE.team_size} people`;
-  $("profileCapacity").textContent = `${profile.max_sites_per_day || DEFAULT_PROFILE.max_sites_per_day} city sites/day, up to ${formatMoney(profile.max_contract_value || DEFAULT_PROFILE.max_contract_value)}`;
-  $("profilePursuits").textContent = `${profile.active_pursuit_count ?? DEFAULT_PROFILE.active_pursuit_count} active, limit ${profile.max_active_pursuits ?? DEFAULT_PROFILE.max_active_pursuits}`;
-  renderTags($("profileSkills"), profile.skills || DEFAULT_PROFILE.skills);
-  renderTags($("profileDocs"), profile.ready_documents || DEFAULT_PROFILE.ready_documents);
+  const fallback = profileById(profile.profile_id || state.selectedProfileId);
+  $("profileName").textContent = profile.name || fallback.name;
+  $("profileType").textContent = titleCase(profile.business_type || fallback.business_type);
+  $("profileBase").textContent = profile.base_location || fallback.base_location;
+  $("profileTeam").textContent = `${profile.team_size || fallback.team_size} people`;
+  $("profileCapacity").textContent = `${profile.max_sites_per_day || fallback.max_sites_per_day} city sites/day, up to ${formatMoney(profile.max_contract_value || fallback.max_contract_value)}`;
+  $("profilePursuits").textContent = `${profile.active_pursuit_count ?? fallback.active_pursuit_count} active, limit ${profile.max_active_pursuits ?? fallback.max_active_pursuits}`;
+  renderTags($("profileSkills"), profile.skills || fallback.skills);
+  renderTags($("profileDocs"), profile.ready_documents || fallback.ready_documents);
+}
+
+function resetWorkspace(message) {
+  $("decisionHeadline").textContent = "Ready to scan city opportunities";
+  $("lastRun").textContent = message || "No scan yet";
+  $("topCount").textContent = "0";
+  $("watchCount").textContent = "0";
+  $("timelineCount").textContent = "0";
+  $("topOpportunities").className = "card-list empty-list";
+  $("topOpportunities").innerHTML = "<p>Run a scan to find contracts worth acting on.</p>";
+  $("watchlist").className = "card-list empty-list";
+  $("watchlist").innerHTML = "<p>Relevant but not ready opportunities will appear here.</p>";
+  $("timeline").className = "timeline empty-list";
+  $("timeline").innerHTML = "<p>Run a simulation to see alerts, deadline pressure, and approval events.</p>";
+  $("packetStatus").textContent = "Not prepared";
+  $("packetOutput").className = "packet-output empty-list";
+  $("packetOutput").innerHTML = "<p>Select an opportunity and approve the draft to prepare the packet.</p>";
+  $("metricSolicitations").textContent = "0";
+  $("metricAwards").textContent = "0";
+  $("metricRejected").textContent = "0";
+  $("metricRuntime").textContent = "0 ms";
+  $("metricRecordsPerSecond").textContent = "0";
+  $("metricModelCallsAvoided").textContent = "0";
+  $("metricNvidiaPath").textContent = "Fallback";
+  $("metricBacktestInsight").textContent = "0";
+  $("engineLabel").textContent = "Python";
+  $("skipCount").textContent = "0";
+  $("evaluatedCount").textContent = "0";
+  $("pipelineDetails").className = "pipeline-list empty-list";
+  $("pipelineDetails").innerHTML = "<p>Evidence appears after a scan.</p>";
+  $("skippedExamples").className = "card-list empty-list";
+  $("skippedExamples").innerHTML = "<p>Rejected opportunities will show why the system saves owner time.</p>";
+  $("scorecardStatus").textContent = "Waiting";
+  $("scorecardDetails").className = "scorecard-grid empty-list";
+  $("scorecardDetails").innerHTML = "<p>Run a scan to see NVIDIA path, model efficiency, false-positive rejection, and historical insight proof.</p>";
+  $("evaluatedStream").className = "table-list empty-list";
+  $("evaluatedStream").innerHTML = "<p>Run a live scan to inspect the ranked stream.</p>";
+  $("approveButton").disabled = true;
 }
 
 function renderOwner(result) {
@@ -305,8 +463,8 @@ function renderPipeline(metrics) {
     {
       name: "Profile Matcher",
       output: supporting.coreFit
-        ? `Core Fit: ${supporting.coreFit}. ${reasons[0] || "Compared against HVAC, controls, emergency repair, and municipal facility experience."}`
-        : reasons[0] || "Compares scope to GTA Mechanical & Controls Ltd. services and capacity."
+        ? `Core Fit: ${supporting.coreFit}. ${reasons[0] || `Compared against ${currentProfile().label} capabilities.`}`
+        : reasons[0] || `Compares scope to ${currentProfile().name} services and capacity.`
     },
     {
       name: "Award Comparator",
@@ -573,6 +731,19 @@ function decisionLabel(label) {
 function getPriorityMode() {
   const selected = document.querySelector('input[name="priorityMode"]:checked');
   return selected ? selected.value : state.priorityMode;
+}
+
+function getSelectedProfileId() {
+  const selected = document.querySelector('input[name="supportedProfile"]:checked');
+  return selected ? selected.value : state.selectedProfileId;
+}
+
+function currentProfile() {
+  return profileById(getSelectedProfileId());
+}
+
+function profileById(profileId) {
+  return SUPPORTED_PROFILES[profileId] || DEFAULT_PROFILE;
 }
 
 function findSelectedOpportunity() {

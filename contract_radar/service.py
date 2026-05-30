@@ -5,7 +5,8 @@ from datetime import date
 from threading import Lock
 from typing import Any
 
-from contract_radar.models import BusinessProfile, EvaluatedOpportunity, PipelineMetrics
+from contract_radar.models import EvaluatedOpportunity, PipelineMetrics
+from contract_radar.profiles import profile_from_payload, supported_profiles
 
 
 class ContractRadarService:
@@ -37,6 +38,7 @@ class ContractRadarService:
             "track": "Economic Systems",
             "labels": ["Pursue", "Review", "Monitor", "Skip"],
             "priority_modes": ["best_win_chance", "best_fit", "highest_value"],
+            "supported_profiles": supported_profiles(),
             "gpu": gpu,
             "nemotron": nemotron,
             "nvidia_stack_active": nvidia_stack_active,
@@ -56,7 +58,7 @@ class ContractRadarService:
         from contract_radar.nemotron import enrich_top_opportunities_with_stats
 
         start = time.perf_counter()
-        profile = BusinessProfile.from_payload((payload or {}).get("business_profile") or payload or {})
+        profile = profile_from_payload(payload or {})
         today = _payload_date(payload) or date.today()
         priority_mode = normalize_priority_mode((payload or {}).get("priority_mode"))
         data_bundle = load_procurement_data(refresh=bool((payload or {}).get("refresh")))

@@ -39,6 +39,7 @@ def money_to_float(value: Any) -> float:
 
 @dataclass
 class BusinessProfile:
+    profile_id: str = "building_mechanical"
     name: str = "GTA Mechanical & Controls Ltd."
     business_type: str = "commercial HVAC, building automation, and mechanical contractor"
     base_location: str = "Toronto, Ontario"
@@ -87,6 +88,7 @@ class BusinessProfile:
         payload = payload or {}
         profile = cls()
         for field_name in (
+            "profile_id",
             "name",
             "business_type",
             "base_location",

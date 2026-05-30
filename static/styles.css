@@ -205,7 +205,8 @@ button {
   color: var(--muted);
 }
 
-.priority-control {
+.priority-control,
+.profile-control {
   display: grid;
   gap: 8px;
   margin: 9px 0 0;
@@ -213,7 +214,8 @@ button {
   border: 0;
 }
 
-.priority-control label {
+.priority-control label,
+.profile-control label {
   display: grid;
   grid-template-columns: 18px minmax(0, 1fr);
   gap: 8px;
@@ -229,8 +231,15 @@ button {
   font-weight: 800;
 }
 
-.priority-control input {
+.priority-control input,
+.profile-control input {
   accent-color: var(--teal);
+}
+
+.profile-control label:has(input:checked) {
+  border-color: #9fd5ca;
+  background: var(--mint);
+  color: var(--teal-dark);
 }
 
 .action-stack {

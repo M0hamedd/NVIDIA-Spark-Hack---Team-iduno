@@ -508,6 +508,8 @@ Shared rules for all agents:
 
 - Extract structured requirements from each solicitation: services, certifications/documents, facility/site signals, deadline risk, procurement type, and risk flags.
 - Use Nemotron/NIM for extraction when available, but validate the output against a deterministic schema and fallback extractor.
+- Upgrade Nemotron from hidden enrichment to a visible work product for shortlisted opportunities: owner-facing bid/no-bid memo, requirements checklist, buyer clarification questions, and a draft approval packet grounded in extracted requirements, historical awards, and bid-fitness evidence.
+- Feed Nemotron fuller solicitation artifacts when available, such as PDFs, addenda, specs, or portal text, while keeping the deterministic engine responsible for final `Pursue`, `Review`, `Monitor`, and `Skip` decisions.
 - Add a custom Bid Fitness Engine that combines capability match, extracted requirements, historical evidence, capacity gates, and hard blockers.
 - Preserve plain decision labels while keeping an internal rule trace for judges.
 - Add `bid_fitness_trace` for each evaluated opportunity with hard blockers, soft warnings, positive signals, historical analogs, capacity gates, deadline gates, false-positive checks, and final rationale.
@@ -516,7 +518,7 @@ Shared rules for all agents:
 - Make false-positive rejection visible, especially misleading terms like road maintenance, software maintenance, legal services, food supply, landscaping, and oversized construction.
 - Add tests showing that misleading keyword matches are skipped even when they share generic terms with the profile.
 
-**MVP done when:** each top or skipped opportunity can show extracted requirements, hard blockers, soft warnings, rules triggered, scorecard labels, and the strongest reason for the final bid/no-bid decision.
+**MVP done when:** each top or skipped opportunity can show extracted requirements, hard blockers, soft warnings, rules triggered, scorecard labels, and the strongest reason for the final bid/no-bid decision. If local Nemotron is active, shortlisted opportunities also produce an owner-ready bid brief/checklist/question set that visibly saves review time.
 
 ### Agent 3: Historical Opportunity Evidence
 

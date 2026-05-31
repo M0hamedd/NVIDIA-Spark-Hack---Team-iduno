@@ -38,8 +38,14 @@ Install the local ranker dependencies before running the app or training proof:
 python -m pip install -r requirements.txt
 ```
 
+`requirements.txt` is already included in the repo. Do not commit the installed `.venv` or Python packages; build them on the Spark so the wheels match Linux/CUDA/Python. After pulling the repo on DGX Spark/Linux, set up the Python environment with:
+
+```bash
+bash scripts/setup_spark.sh
+```
+
 ```powershell
-python app.py
+python app.py --without-nemotron
 ```
 
 Then open the local URL printed by the server, usually:
@@ -48,10 +54,10 @@ Then open the local URL printed by the server, usually:
 http://127.0.0.1:8080
 ```
 
-To run the DGX Spark demo with local Nemotron, use:
+To run the DGX Spark demo with local Nemotron, use the default app command:
 
 ```bash
-python3 app.py --with-nemotron
+python3 app.py
 ```
 
 The first run builds `llama.cpp`, downloads the Q4 Nemotron GGUF model, starts an OpenAI-compatible model server on `http://127.0.0.1:30000/v1`, then launches the app on `http://127.0.0.1:8080`. Later runs reuse the downloaded model and built server. Runtime build files live outside the repo in `~/.contract-radar/nemotron`, model files default to `data/models/nemotron3-gguf`, and model-server logs are written to `~/.contract-radar/nemotron/llama-server.log`.
@@ -73,7 +79,7 @@ For the fastest deterministic DGX Spark/local smoke test, use the cached Toronto
 ```powershell
 $env:CONTRACT_RADAR_CACHE_DIR="data/cache"
 $env:CONTRACT_RADAR_OFFLINE="1"
-python app.py
+python app.py --without-nemotron
 ```
 
 In a second terminal:
@@ -142,6 +148,7 @@ These variables are optional for local development and demo reliability.
 $env:CONTRACT_RADAR_CACHE_DIR="data/cache"
 $env:CONTRACT_RADAR_OFFLINE="0"
 $env:CONTRACT_RADAR_ALLOW_SAMPLE_DATA="0"
+$env:CONTRACT_RADAR_DISABLE_NEMOTRON="0"
 $env:NIM_BASE_URL="http://localhost:8000/v1"
 $env:NIM_MODEL="nvidia/llama-3.1-nemotron-70b-instruct"
 $env:NIM_API_KEY=""
@@ -155,11 +162,12 @@ $env:CONTRACT_RADAR_NEMOTRON_MODEL_FILE="Nemotron-3-Nano-30B-A3B-UD-Q4_K_XL.gguf
 - `CONTRACT_RADAR_CACHE_DIR`: directory for cached Toronto Open Data responses.
 - `CONTRACT_RADAR_OFFLINE`: set to `1` to use cached Toronto Open Data without a live fetch for a stable demo.
 - `CONTRACT_RADAR_ALLOW_SAMPLE_DATA`: set to `1` only for local tests that intentionally exercise bundled fixtures. Keep unset or `0` for demos.
+- `CONTRACT_RADAR_DISABLE_NEMOTRON`: set to `1` when running local deterministic tests; `python app.py --without-nemotron` sets this automatically.
 - `NIM_BASE_URL`: local NVIDIA NIM/OpenAI-compatible endpoint used for structured requirement extraction on shortlisted contracts.
 - `NIM_MODEL`: local Nemotron model identifier served by NIM.
 - `NIM_API_KEY`: optional key if the local NIM endpoint requires one.
 - `NIM_PREFLIGHT_TIMEOUT_SECONDS`: fast preflight timeout before falling back to deterministic extraction.
-- `CONTRACT_RADAR_NEMOTRON_PORT`: port used by `python3 app.py --with-nemotron`.
+- `CONTRACT_RADAR_NEMOTRON_PORT`: port used by the default managed Nemotron startup in `python3 app.py`.
 - `CONTRACT_RADAR_NEMOTRON_HOME`: local directory for the managed llama.cpp build, Hugging Face CLI venv, and server log.
 - `CONTRACT_RADAR_NEMOTRON_MODEL_DIR`: local directory for manually downloaded or managed GGUF model files.
 - `CONTRACT_RADAR_NEMOTRON_MODEL_FILE`: GGUF model filename. Defaults to the smaller Q4 Nemotron file for demo speed.

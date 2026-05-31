@@ -907,6 +907,9 @@ def _with_optional_stats(
 
 def _nim_preflight() -> dict[str, Any]:
     base_url = _base_url()
+    if os.environ.get("CONTRACT_RADAR_DISABLE_NEMOTRON") == "1":
+        return {"available": False, "reason": "disabled_by_flag", "base_url": base_url}
+
     now = time.monotonic()
     cache_key = base_url
     cached = _NIM_PREFLIGHT_CACHE.get(cache_key)

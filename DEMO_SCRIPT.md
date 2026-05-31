@@ -162,6 +162,8 @@ Start the app:
 python app.py
 ```
 
+For local agent smoke tests away from DGX Spark, use `python app.py --without-nemotron` so the deterministic fallback path starts immediately.
+
 For a stable no-internet demo with real cached Toronto Open Data:
 
 ```powershell

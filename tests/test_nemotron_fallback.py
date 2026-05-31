@@ -21,9 +21,11 @@ class NemotronFallbackTests(unittest.TestCase):
         self._old_base_url = os.environ.get("NIM_BASE_URL")
         self._old_timeout = os.environ.get("NIM_TIMEOUT_SECONDS")
         self._old_preflight_timeout = os.environ.get("NIM_PREFLIGHT_TIMEOUT_SECONDS")
+        self._old_disabled = os.environ.get("CONTRACT_RADAR_DISABLE_NEMOTRON")
         os.environ["NIM_BASE_URL"] = "http://127.0.0.1:9/v1"
         os.environ["NIM_TIMEOUT_SECONDS"] = "0.05"
         os.environ["NIM_PREFLIGHT_TIMEOUT_SECONDS"] = "0.05"
+        os.environ.pop("CONTRACT_RADAR_DISABLE_NEMOTRON", None)
         reset_nim_preflight_cache()
 
     def tearDown(self) -> None:
@@ -39,6 +41,10 @@ class NemotronFallbackTests(unittest.TestCase):
             os.environ.pop("NIM_PREFLIGHT_TIMEOUT_SECONDS", None)
         else:
             os.environ["NIM_PREFLIGHT_TIMEOUT_SECONDS"] = self._old_preflight_timeout
+        if self._old_disabled is None:
+            os.environ.pop("CONTRACT_RADAR_DISABLE_NEMOTRON", None)
+        else:
+            os.environ["CONTRACT_RADAR_DISABLE_NEMOTRON"] = self._old_disabled
         reset_nim_preflight_cache()
 
     def test_fallback_adds_usable_structured_requirements_without_nim(self) -> None:
@@ -174,6 +180,18 @@ class NemotronFallbackTests(unittest.TestCase):
         self.assertEqual(mode, "deterministic_fallback")
         self.assertEqual(len(enriched), 3)
         self.assertTrue(all(item.requirements.source == "deterministic_fallback" for item in enriched))
+
+    def test_disable_nemotron_flag_forces_deterministic_fallback(self) -> None:
+        os.environ["CONTRACT_RADAR_DISABLE_NEMOTRON"] = "1"
+        reset_nim_preflight_cache()
+
+        status = nemotron_status()
+        enriched, mode = enrich_top_opportunities(BusinessProfile(), [_opportunity()])
+
+        self.assertEqual(status["nim_mode"], "deterministic_fallback")
+        self.assertEqual(status["preflight"]["reason"], "disabled_by_flag")
+        self.assertEqual(mode, "deterministic_fallback")
+        self.assertEqual(enriched[0].requirements.source, "deterministic_fallback")
 
 
 def _opportunity() -> EvaluatedOpportunity:

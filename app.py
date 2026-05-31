@@ -88,7 +88,10 @@ class ContractRadarHandler(BaseHTTPRequestHandler):
 def main() -> None:
     args = _parse_args()
     nemotron_process = None
-    if args.with_nemotron or args.nemotron_setup_only:
+    use_nemotron = not args.without_nemotron or args.nemotron_setup_only
+    if args.without_nemotron and not args.nemotron_setup_only:
+        os.environ["CONTRACT_RADAR_DISABLE_NEMOTRON"] = "1"
+    if use_nemotron:
         from contract_radar.nemotron_runtime import (
             NemotronRuntimeError,
             ensure_local_nemotron,
@@ -99,7 +102,11 @@ def main() -> None:
             nemotron_process = ensure_local_nemotron(setup_only=args.nemotron_setup_only)
         except (NemotronRuntimeError, subprocess.CalledProcessError) as exc:
             print(f"Nemotron startup failed: {exc}", file=sys.stderr)
-            print("Start without Nemotron using `python3 app.py`, or retry after fixing the setup issue.", file=sys.stderr)
+            print(
+                "Start without Nemotron using `python3 app.py --without-nemotron`, "
+                "or retry after fixing the setup issue.",
+                file=sys.stderr,
+            )
             raise SystemExit(1) from exc
 
         if args.nemotron_setup_only:
@@ -107,8 +114,10 @@ def main() -> None:
 
     server = ThreadingHTTPServer((HOST, PORT), ContractRadarHandler)
     print(f"SoBid running at http://{HOST}:{PORT}")
-    if args.with_nemotron:
+    if use_nemotron:
         print(f"Nemotron base URL: {os.environ.get('NIM_BASE_URL')}")
+    else:
+        print("Nemotron disabled for this run.")
     print("Press Ctrl+C to stop.")
     try:
         server.serve_forever()
@@ -116,16 +125,16 @@ def main() -> None:
         print("\nStopping SoBid.")
     finally:
         server.server_close()
-        if args.with_nemotron:
+        if use_nemotron:
             stop_managed_nemotron(nemotron_process)
 
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the SoBid web app.")
     parser.add_argument(
-        "--with-nemotron",
+        "--without-nemotron",
         action="store_true",
-        help="On Linux DGX Spark, build/download/start local Nemotron via llama.cpp before launching the app.",
+        help="Skip managed local Nemotron startup and use deterministic extraction fallback.",
     )
     parser.add_argument(
         "--nemotron-setup-only",

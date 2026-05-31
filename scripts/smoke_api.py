@@ -14,7 +14,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
             "Smoke-test a running Live Contract Radar API. Start the app first with "
-            "`python app.py`, then run this command."
+            "`python app.py --without-nemotron` for local deterministic tests or "
+            "`python app.py` on DGX Spark, then run this command."
         )
     )
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL, help=f"API base URL. Default: {DEFAULT_BASE_URL}")
@@ -87,7 +88,7 @@ def main() -> int:
         return 1
     except (error.HTTPError, error.URLError, TimeoutError, OSError) as exc:
         print(f"FAIL: could not reach {base_url}: {exc}", file=sys.stderr)
-        print("Start the app with `python app.py` and retry.", file=sys.stderr)
+        print("Start the app with `python app.py --without-nemotron` locally and retry.", file=sys.stderr)
         return 1
     except json.JSONDecodeError as exc:
         print(f"FAIL: response was not JSON: {exc}", file=sys.stderr)

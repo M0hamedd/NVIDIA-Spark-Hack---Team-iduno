@@ -416,7 +416,7 @@ Updated May 30, 2026. The project has moved from the original single-profile con
 
 ### App Shape Now
 
-- The app still keeps the fast hackathon-friendly shape: `python app.py`, a static frontend in `static/`, local Python modules in `contract_radar/`, cached Toronto data in `data/cache`, and deterministic fallback behavior.
+- The app still keeps the fast hackathon-friendly shape: `python app.py` on DGX Spark with managed Nemotron by default, `python app.py --without-nemotron` for local agent tests, a static frontend in `static/`, local Python modules in `contract_radar/`, cached Toronto data in `data/cache`, and deterministic fallback behavior.
 - The backend exposes `/api/health`, `/api/scan`, `/api/simulate`, and `/api/approve`.
 - The frontend is an actual procurement dashboard rather than a chatbot or landing page: profile controls, priority mode, opportunity queue, detail inspector, evidence pipeline, judge metrics, skipped examples, approval packet flow, and visual status states.
 - Cached Toronto Open Data files are present for solicitations and awarded contracts, so the demo can run offline with `CONTRACT_RADAR_OFFLINE=1`.
@@ -429,7 +429,7 @@ Implemented or added:
 - README now documents the fastest local/Spark path, cached-data path, NIM optional path, smoke test, benchmark, bid-engine evaluation, and ranker training commands.
 - `scripts/smoke_api.py` validates the running app through `/api/health`, `/api/scan`, `/api/simulate`, and `/api/approve`.
 - The app supports deterministic fallback when local NIM/Nemotron is unavailable.
-- `app.py --with-nemotron` and `app.py --nemotron-setup-only` exist for the managed local Nemotron/llama.cpp setup path.
+- `python app.py` and `app.py --nemotron-setup-only` exist for the managed local Nemotron/llama.cpp setup path; `app.py --without-nemotron` is the local deterministic test escape hatch.
 - `.gitignore` was updated for local runtime artifacts and demo cache/model output hygiene.
 
 Still needs final gate verification:
@@ -621,7 +621,7 @@ Shared rules for all agents:
 
 - Keep V1 focused on Toronto Open Data only.
 - Do not add CanadaBuys, Ontario Tenders, MERX, or other portals yet.
-- Preserve the existing working app shape: `python app.py`, static frontend, local cache, deterministic fallback.
+- Preserve the existing working app shape: `python app.py` for Spark/Nemotron, `python app.py --without-nemotron` for local agent testing, static frontend, local cache, deterministic fallback.
 - Use the existing modules unless a small new helper clearly avoids file conflicts.
 - Prefer visible judge evidence over hidden cleverness.
 - Do not expose AI-looking percentages in the UI.
@@ -637,7 +637,7 @@ Shared rules for all agents:
 
 **Work:**
 
-- Verify `python app.py` runs locally with cached data.
+- Verify `python app.py --without-nemotron` runs locally with cached data; verify `python app.py` on DGX Spark with managed Nemotron.
 - Document the fastest Spark run path: environment variables, cache behavior, NIM optional mode, and expected URL.
 - Add or document an API smoke check for `/api/health`, `/api/scan`, `/api/simulate`, and `/api/approve`.
 - Confirm the app still works when Nemotron/NIM is unavailable.
@@ -875,7 +875,7 @@ Before calling the MVP ready, Agent 0 or the integrator must verify:
 - `python -m unittest` passes.
 - `node --check static/app.js` passes.
 - `python scripts/benchmark_pipeline.py --offline --repeat 100` reports runtime, throughput, shortlist reduction, model calls avoided, NVIDIA mode, and insight scorecard.
-- `python app.py` starts successfully.
+- `python app.py --without-nemotron` starts successfully locally; `python app.py` starts successfully on DGX Spark.
 - `/api/health` reports the app, `nvidia_stack_active`, active NVIDIA tools, DGX/RAPIDS status, NIM mode, and Spark story.
 - `/api/scan` works with cached Toronto data.
 - The default profile is `road_civil_infrastructure`.

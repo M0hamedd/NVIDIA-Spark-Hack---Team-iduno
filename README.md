@@ -1,82 +1,45 @@
-# Live Contract Radar
+# SoBid
 
-Live Contract Radar is a Toronto Open Data procurement agent for small businesses. It monitors current City of Toronto contract opportunities, filters out poor fits, compares realistic matches against historical awards, and prepares an approval-gated bid packet for the owner.
+SoBid is a local procurement intelligence app for small businesses pursuing City of Toronto work. It scans Toronto Open Data solicitations, compares current listings against historical awards, filters poor fits, ranks realistic opportunities for a selected business profile, and prepares bid notes only after owner approval.
 
-The V1 demo focuses on three data-backed 2026 YTD Toronto procurement lanes that the user can switch between live:
+The demo is built for the **NVIDIA DGX Spark Hackathon, Economic Systems track**. It is not a chatbot: the core bid/no-bid decision comes from deterministic business gates, historical award evidence, local scikit-learn models, pricing/revenue simulation, and portfolio capacity checks. Local Nemotron/NIM is used selectively for structured owner-facing bid briefs after the system has already shortlisted opportunities.
 
-- **Road/Civil Infrastructure Contractor:** 45 multi-label solicitation hits; 29 exclusive best-fit hits.
-- **Parks/Landscape Contractor:** 42 multi-label solicitation hits; 29 exclusive best-fit hits.
-- **Professional Engineering/Design Firm:** 23 multi-label solicitation hits; 14 exclusive best-fit hits.
+## Current Demo
 
-The goal is to show how a local contractor, vendor, or professional firm without a procurement team can still discover and act on realistic public revenue opportunities in the lanes where Toronto is repeatedly buying.
+The app ships with three data-backed 2026 Toronto procurement lanes:
 
-This is not a chatbot. It is a local bid intelligence engine: deterministic filtering, historical award comparison, scikit-learn award-history market scoring, a visual evidence pipeline, and Nemotron/NIM structured extraction for owner-ready bid briefs when a local model endpoint is available.
+| Profile ID | UI Label | 2026 matching listings | Strong matches |
+| --- | --- | ---: | ---: |
+| `road_civil_infrastructure` | Road/Civil Infrastructure Contractor | 45 | 29 |
+| `parks_landscape` | Parks/Landscape Contractor | 42 | 29 |
+| `professional_engineering_design` | Professional Engineering/Design Firm | 23 | 14 |
 
-## Economic Systems Judging Fit
+The UI opens on the **Inbox** view, auto-runs the first profile-specific scan, and lets the user:
 
-- **Insight Quality:** Small businesses often miss public contracts because of discovery friction, procurement language, deadline pressure, and capacity mismatch, not only because they lack the ability to do the work.
-- **Usability:** The owner gets plain procurement decisions: `Pursue`, `Review`, `Monitor`, or `Skip`.
-- **Creativity:** The system combines live/daily solicitations, historical awarded contracts, local award-history ML, business capacity, local structured requirement extraction, and an approval workflow.
-- **Performance:** The pipeline scans procurement records locally first, trains/applies the award-history ranker without Nemotron, uses RAPIDS/cuDF when available for raw-record filtering, fast-fails unavailable NIM endpoints, rejects obvious bad fits quickly, and uses Nemotron/NIM only on shortlisted candidates.
+- switch business type;
+- choose a demo month from January through May 2026;
+- inspect `Pursue`, `Review`, `Monitor`, and `Skip` recommendations;
+- open the **Proof** view for source status, runtime, records/sec, model calls avoided, NVIDIA path, pricing stats, validation, and skipped examples;
+- prepare bid notes with the **Prepare Bid Notes** button.
 
-## V1 Demo Flow
+Owner-ready packets are gated: if a listing was not enriched by local Nemotron/NIM, approval returns a blocked packet with instructions to start local Nemotron, rerun the scan, and approve again. Deterministic fallback still ranks opportunities and shows basic structured requirements, but it does not generate the final owner-ready packet or simulated receipt.
 
-1. Start with the default **Road/Civil Infrastructure Contractor** profile.
-2. Switch between the three data-backed demo lanes to show that matching behavior changes by business type.
-3. Run a live scan of Toronto procurement data.
-4. Review rejected opportunities to prove the system is filtering, not listing.
-5. Open a top `Pursue` or `Review` opportunity.
-6. Compare the opportunity to similar historical awards and capacity warnings.
-7. Open the judge evidence view for records scanned, rejection counts, runtime, active NVIDIA path, model calls avoided, and backtest insight.
-8. Approve the opportunity and generate a simulated bid packet.
+## Quick Start: Local Development
 
-## Spark/Local Fast Path
-
-Install the local ranker dependencies before running the app or training proof:
+In this workspace, run local smoke tests and UI checks without managed Nemotron:
 
 ```powershell
 python -m pip install -r requirements.txt
-```
-
-`requirements.txt` is already included in the repo. Do not commit the installed `.venv` or Python packages; build them on the Spark so the wheels match Linux/CUDA/Python. The default Spark requirements use CUDA 13 wheels for RAPIDS/cuDF and cuOpt; if the Spark image is CUDA 12, swap `cudf-cu13`/`cuopt-cu13` for the matching CUDA 12 package names before installing. After pulling the repo on DGX Spark/Linux, set up the Python environment with:
-
-```bash
-bash scripts/setup_spark.sh
-```
-
-```powershell
 python app.py --without-nemotron
 ```
 
-Then open the local URL printed by the server, usually:
+Open the URL printed by the server, usually:
 
 ```text
 http://127.0.0.1:8080
 ```
 
-To run the DGX Spark demo with local Nemotron, use the default app command:
-
-```bash
-python3 app.py
-```
-
-The first run builds `llama.cpp`, downloads the Q4 Nemotron GGUF model, starts an OpenAI-compatible model server on `http://127.0.0.1:30000/v1`, then launches the app on `http://127.0.0.1:8080`. Later runs reuse the downloaded model and built server. Runtime build files live outside the repo in `~/.contract-radar/nemotron`, model files default to `data/models/nemotron3-gguf`, and model-server logs are written to `~/.contract-radar/nemotron/llama-server.log`.
-
-On DGX Spark/Linux, `python app.py` also checks whether cuOpt's Python MILP API is importable. If cuOpt is missing and `nvidia-smi` is available, the app tries a best-effort install from NVIDIA's Python index using the detected CUDA major version, then continues with the deterministic greedy portfolio fallback if installation fails. Set `CONTRACT_RADAR_AUTO_INSTALL_CUOPT=0` or pass `--skip-cuopt-install` to skip this startup check.
-
-If you manually download the model, place it here before starting the app:
-
-```bash
-data/models/nemotron3-gguf/Nemotron-3-Nano-30B-A3B-UD-Q4_K_XL.gguf
-```
-
-If you want to do the slow setup ahead of the demo:
-
-```bash
-python3 app.py --nemotron-setup-only
-```
-
-For the fastest deterministic DGX Spark/local smoke test, use the cached Toronto Open Data path:
+For a stable no-internet local run against cached Toronto Open Data:
 
 ```powershell
 $env:CONTRACT_RADAR_CACHE_DIR="data/cache"
@@ -84,193 +47,278 @@ $env:CONTRACT_RADAR_OFFLINE="1"
 python app.py --without-nemotron
 ```
 
-In a second terminal:
+Do not use the removed `--with-nemotron` flag.
+
+## DGX Spark Demo Run
+
+On DGX Spark, the intended demo command is:
+
+```bash
+python app.py
+```
+
+The default command starts managed local Nemotron before launching the web app. On first run it:
+
+- builds `llama.cpp` with CUDA support;
+- downloads `unsloth/Nemotron-3-Nano-30B-A3B-GGUF`;
+- serves `Nemotron-3-Nano-30B-A3B-UD-Q4_K_XL.gguf` through an OpenAI-compatible endpoint;
+- sets `NIM_BASE_URL` to `http://127.0.0.1:30000/v1`;
+- starts SoBid at `http://127.0.0.1:8080`.
+
+Runtime build files live under `~/.contract-radar/nemotron`. Model files default to `data/models/nemotron3-gguf`, and model-server logs are written to `~/.contract-radar/nemotron/llama-server.log`.
+
+Set up the Spark Python environment with:
+
+```bash
+bash scripts/setup_spark.sh
+source .venv/bin/activate
+python app.py
+```
+
+If the model is already downloaded manually, place it here:
+
+```text
+data/models/nemotron3-gguf/Nemotron-3-Nano-30B-A3B-UD-Q4_K_XL.gguf
+```
+
+To build/download the managed Nemotron runtime before demo time:
+
+```bash
+python app.py --nemotron-setup-only
+```
+
+To skip the DGX Spark cuOpt bootstrap check:
+
+```bash
+python app.py --skip-cuopt-install
+```
+
+## API
+
+The app is a small Python HTTP server with static frontend assets and JSON/NDJSON API routes.
+
+| Route | Method | Purpose |
+| --- | --- | --- |
+| `/` | GET | Frontend app |
+| `/api/health` | GET | Runtime status, supported profiles, NVIDIA/NIM/ranker state |
+| `/api/scan-stream` | POST | Streaming NDJSON scan progress plus final result |
+| `/api/scan` | POST | Non-streaming scan result |
+| `/api/simulate` | POST | Scan plus month timeline simulation |
+| `/api/approve` | POST | Approval-gated bid packet or Nemotron-required block |
+
+Useful payload fields:
+
+- `profile_id`: one of the three supported profile IDs.
+- `business_profile`: optional profile override object.
+- `priority_mode`: `best_win_chance`, `best_fit`, or `highest_value`.
+- `as_of`: ISO date used for demo month/deadline logic.
+- `refresh`: set `true` to refresh Toronto Open Data.
+- `days`: simulation window for `/api/simulate`.
+- `approved` and `opportunity_id`: used by `/api/approve`.
+
+## Verification Commands
+
+With the app running:
 
 ```powershell
 python scripts/smoke_api.py --base-url http://127.0.0.1:8080
 ```
 
-The smoke command validates `/api/health`, `/api/scan`, `/api/simulate`, and `/api/approve` against the running app. Use `--help` to see optional flags, including `--refresh` for a live Toronto Open Data refresh when internet access is available. Demo scans refuse bundled sample solicitations unless `CONTRACT_RADAR_ALLOW_SAMPLE_DATA=1` is explicitly set for local tests.
+The smoke test validates `/api/health`, `/api/scan`, `/api/simulate`, and `/api/approve`, and rejects bundled dev fixtures unless sample data was explicitly enabled.
 
-To precompute demo scans and replay them instantly from checked-in JSON, run this on Spark after Nemotron is ready:
-
-```bash
-python3 scripts/precompute_scan_cache.py --offline
-git add data/precomputed contract_radar/precomputed.py scripts/precompute_scan_cache.py README.md
-git commit -m "Add precomputed Spark scan cache"
-git push
-```
-
-Then run the app with replay enabled:
-
-```bash
-export CONTRACT_RADAR_OFFLINE=1
-export CONTRACT_RADAR_USE_PRECOMPUTED_SCAN=1
-python3 app.py --without-nemotron
-```
-
-The replay path returns the saved scan result, including any Spark-generated Nemotron briefs, before rebuilding RAG, market scoring, or local model output. Leave `CONTRACT_RADAR_USE_PRECOMPUTED_SCAN` unset when you want to prove the full live pipeline.
-
-During a normal app run, scans use a two-layer cache:
-
-- Shared artifact cache: data bundles and historical RAG retrievers are reused across same-lane profile variants.
-- Listing extraction cache: local Nemotron requirement extraction is keyed by the solicitation itself, so the app can reuse the same listing summary across companies.
-- Exact result cache: identical profile/date/priority scans return immediately unless `refresh=true` is requested.
-
-For example, a cold same-lane scan may do the full local pipeline, a different company in the same lane can reuse shared artifacts while applying its own capacity/profile gates, and an exact repeat returns from memory in milliseconds.
-
-To show the deterministic judging/performance proof without opening the UI:
-
-```powershell
-python scripts/benchmark_pipeline.py --offline --repeat 100
-```
-
-To allow live refresh/cache behavior at larger scale, omit `--offline`:
-
-```powershell
-python scripts/benchmark_pipeline.py --repeat 10 --json
-```
-
-For judged Spark readiness, require an active NVIDIA path:
-
-```powershell
-python scripts/benchmark_pipeline.py --repeat 1 --require-nvidia
-```
-
-The benchmark reports local records processed, runtime, records/sec, shortlist reduction, model calls avoided, active NVIDIA path, false positives skipped, similar awards grounded, and the top insight scorecard sentence. `--require-nvidia` intentionally fails in fallback mode so the team does not accidentally present fallback as NVIDIA acceleration.
-
-To prove the bid engine beats naive keyword matching across all three personas:
-
-```powershell
-python scripts/evaluate_bid_engine.py --offline --profiles all
-```
-
-That evaluation reports naive keyword candidates, bid-engine actionable items, false positives skipped, shortlist reduction, top opportunity, and estimated bid-review hours saved.
-
-To train and evaluate the local bid-fit and market rankers:
-
-```powershell
-python -m pip install -r requirements.txt
-python scripts/train_bid_ranker.py --offline --profiles all
-```
-
-The scan now treats the award-history ranker as a required local capability, not a silent fallback. It trains and applies a local scikit-learn award-history market model during scan, while the training script also reports the evaluation proof. The ranker has two roles:
-
-- A guarded bid-fit ranker over current evaluated opportunities and historical fit examples.
-- A temporal award-history market model that trains on older awards, tests on recent awards, and uses supplier repeat history, market concentration, value accessibility, category/type, division, and profile-term fit signals.
-
-That gives the demo a concrete procurement-intelligence layer: not just "does this text match our profile?", but "have similar contracts historically been accessible, who tends to win them, and does the recent market look worth chasing?" Deterministic hard blockers still own `Pursue`, `Review`, `Monitor`, and `Skip`; the ranker scores and orders safe candidates.
-
-Cache behavior:
-
-- By default, the app reads Toronto Open Data cache files from `data/cache` before trying live fetches.
-- Successful live fetches write fresh cache files back to `data/cache`.
-- If live/cache data is incomplete, the app fails loudly rather than showing fake postings.
-- Set `CONTRACT_RADAR_OFFLINE=1` to use cached Toronto Open Data without a live fetch for a stable no-internet demo.
-- `CONTRACT_RADAR_ALLOW_SAMPLE_DATA=1` unlocks bundled sample fixtures only for local tests; do not use it for demos.
-
-## Environment Variables
-
-These variables are optional for local development and demo reliability.
-
-```powershell
-$env:CONTRACT_RADAR_CACHE_DIR="data/cache"
-$env:CONTRACT_RADAR_OFFLINE="0"
-$env:CONTRACT_RADAR_ALLOW_SAMPLE_DATA="0"
-$env:CONTRACT_RADAR_DISABLE_NEMOTRON="0"
-$env:NIM_BASE_URL="http://localhost:8000/v1"
-$env:NIM_MODEL="nvidia/llama-3.1-nemotron-70b-instruct"
-$env:NIM_API_KEY=""
-$env:NIM_PREFLIGHT_TIMEOUT_SECONDS="0.2"
-$env:CONTRACT_RADAR_NEMOTRON_PORT="30000"
-$env:CONTRACT_RADAR_NEMOTRON_HOME="$HOME/.contract-radar/nemotron"
-$env:CONTRACT_RADAR_NEMOTRON_MODEL_DIR="data/models/nemotron3-gguf"
-$env:CONTRACT_RADAR_NEMOTRON_MODEL_FILE="Nemotron-3-Nano-30B-A3B-UD-Q4_K_XL.gguf"
-$env:CONTRACT_RADAR_AUTO_INSTALL_CUOPT="1"
-$env:CONTRACT_RADAR_CUDA_MAJOR="13"
-$env:CONTRACT_RADAR_CUOPT_PACKAGE="cuopt-cu13"
-```
-
-- `CONTRACT_RADAR_CACHE_DIR`: directory for cached Toronto Open Data responses.
-- `CONTRACT_RADAR_OFFLINE`: set to `1` to use cached Toronto Open Data without a live fetch for a stable demo.
-- `CONTRACT_RADAR_ALLOW_SAMPLE_DATA`: set to `1` only for local tests that intentionally exercise bundled fixtures. Keep unset or `0` for demos.
-- `CONTRACT_RADAR_DISABLE_NEMOTRON`: set to `1` when running local deterministic tests; `python app.py --without-nemotron` sets this automatically.
-- `CONTRACT_RADAR_USE_PRECOMPUTED_SCAN`: set to `1` to replay checked-in `data/precomputed/scans/*.json` scan results instead of rerunning the full pipeline.
-- `CONTRACT_RADAR_PRECOMPUTED_DIR`: directory for precomputed scan replay files. Defaults to `data/precomputed`.
-- `CONTRACT_RADAR_DISABLE_SCAN_RESULT_CACHE`: set to `1` to disable the in-process cache that reuses identical scan results after the first run.
-- `NIM_BASE_URL`: local NVIDIA NIM/OpenAI-compatible endpoint used for structured requirement extraction on shortlisted contracts.
-- `NIM_MODEL`: local Nemotron model identifier served by NIM.
-- `NIM_API_KEY`: optional key if the local NIM endpoint requires one.
-- `NIM_PREFLIGHT_TIMEOUT_SECONDS`: fast preflight timeout before falling back to deterministic extraction.
-- `CONTRACT_RADAR_NEMOTRON_PORT`: port used by the default managed Nemotron startup in `python3 app.py`.
-- `CONTRACT_RADAR_NEMOTRON_HOME`: local directory for the managed llama.cpp build, Hugging Face CLI venv, and server log.
-- `CONTRACT_RADAR_NEMOTRON_MODEL_DIR`: local directory for manually downloaded or managed GGUF model files.
-- `CONTRACT_RADAR_NEMOTRON_MODEL_FILE`: GGUF model filename. Defaults to the smaller Q4 Nemotron file for demo speed.
-- `CONTRACT_RADAR_AUTO_INSTALL_CUOPT`: set to `0` to disable the best-effort DGX Spark cuOpt install check at `app.py` startup.
-- `CONTRACT_RADAR_CUDA_MAJOR`: optional override for choosing `cuopt-cu12` or `cuopt-cu13` during the startup check.
-- `CONTRACT_RADAR_CUOPT_PACKAGE`: optional package override if the Spark image uses a different cuOpt wheel name.
-
-NIM/Nemotron is no longer just a nice-to-have in the owner workflow. The app can still rank opportunities deterministically when local NIM is unavailable, but owner-ready packet drafting is blocked until Nemotron generates a validated bid brief. When `NIM_BASE_URL` is reachable, the app asks a local Nemotron model for structured fields, blockers, required documents, clarification questions, next steps, and grounded buyer-email wording for already-shortlisted opportunities. Nemotron does **not** make the final `Pursue`, `Review`, `Monitor`, or `Skip` decision; validated blockers can downgrade a `Pursue` recommendation to `Review` through the bid-fitness policy.
-
-## DGX Spark / NVIDIA Story
-
-DGX Spark is used as the local AI and data processing workstation:
-
-- Scan current solicitations and historical award records locally.
-- Keep the business profile, capacity limits, and bid strategy on-device.
-- Warn when an otherwise relevant opportunity collides with active pursuits, deadline pressure, or execution capacity.
-- Use RAPIDS/cuDF for raw-record filtering when available, with Python parity fallback.
-- Use cuOpt for portfolio-level bid selection when the cuOpt Python API is installed, with deterministic greedy fallback.
-- Use fast deterministic filtering before model calls and report how many model calls were avoided.
-- Use local Nemotron/NIM only for high-value language tasks after deterministic shortlisting: extracting procurement requirements into structured fields and helping draft evidence-backed owner-facing wording.
-- Show the active NVIDIA path, records/sec, model calls avoided, cuOpt portfolio mode, and insight scorecard in Evidence View and benchmark output.
-
-The demo message is: **the model explains and drafts from computed evidence; it does not guess from vibes.**
-
-## Tests
+Run the unit tests:
 
 ```powershell
 python -m unittest
 ```
 
-Expected V1 coverage:
+Run the local pipeline benchmark:
 
-- Live or fallback data loads successfully.
-- Irrelevant, expired, oversized, or wrong-category opportunities are rejected.
-- Strong matches are labeled `Pursue` or `Review`.
-- The three supported profiles map to road/civil infrastructure, parks/landscape, and professional engineering/design lanes.
-- Profile switching changes ranking behavior while keeping the same endpoints and decision labels.
-- Historical award values parse into a range or return insufficient history.
-- Approval packet generation requires explicit owner approval.
-- Nemotron fallback works when no local NIM endpoint is running.
-- The benchmark script reports model efficiency and the insight scorecard.
-- Unavailable NIM fast-fails instead of stalling scans.
+```powershell
+python scripts/benchmark_pipeline.py --offline --repeat 100
+```
 
-## Toronto Open Data Datasets
+Run the DGX/NVIDIA readiness gate:
 
-V1 uses public Toronto Open Data procurement feeds. That is enough to prove the local bid intelligence pipeline, but it is not every possible live City bid source and should not be represented as full coverage of all Toronto procurement activity.
+```powershell
+python scripts/benchmark_pipeline.py --repeat 1 --require-nvidia
+```
 
-Core V1:
+`--require-nvidia` intentionally fails if the last scan used only fallback paths. Omit it for deterministic local demos.
 
-- [Toronto Bids Solicitations](https://open.toronto.ca/dataset/tobids-all-open-solicitations/) - current/open City procurement opportunities.
-- [Toronto Bids Awarded Contracts](https://open.toronto.ca/dataset/tobids-awarded-contracts/) - historical contract awards for similar-opportunity comparison.
+Run the naive-keyword baseline comparison:
 
-Strong stretch:
+```powershell
+python scripts/evaluate_bid_engine.py --offline --profiles all
+```
 
-- [Toronto Bids Non-Competitive Contracts](https://open.toronto.ca/dataset/tobids-non-competitive-contracts/) - additional purchasing pattern evidence.
-- [Procurement Pipeline](https://open.toronto.ca/dataset/procurement-pipeline/) - future opportunities before they become active solicitations.
+Train and evaluate the local ranker/value proof:
 
-Economic expansion:
+```powershell
+python scripts/train_bid_ranker.py --offline --profiles all
+```
 
-- [Municipal Licensing and Standards - Business Licences and Permits](https://open.toronto.ca/dataset/municipal-licensing-and-standards-business-licences-and-permits/) - business categories and local vendor landscape.
-- [Business Improvement Areas](https://open.toronto.ca/dataset/business-improvement-areas/) - local business corridors and future BIA alerting.
-- [Business Incubation](https://open.toronto.ca/dataset/business-incubation/) - support programs for businesses that are not yet bid-ready.
+Optionally write a JSON model artifact:
 
-Later procurement source expansion:
+```powershell
+python scripts/train_bid_ranker.py --offline --profiles all --output data/output/bid_ranker_model.json
+```
 
-- Toronto Bids Portal / SAP Ariba for City opportunities beyond the open-data export.
-- CanadaBuys for federal tenders and award history.
-- Ontario Tenders Portal for Ontario government and broader public-sector opportunities.
-- TTC / MERX for Toronto transit solicitations, results, and awards posted through MERX.
-- Nearby municipalities including Mississauga, Brampton, Vaughan, Markham, Richmond Hill, Peel, York, Durham, Halton, Hamilton, and other GTA buyers.
-- bids&tenders / Link2Build for construction-heavy and municipal Ontario opportunities.
+## Pipeline
+
+Each scan runs this local pipeline:
+
+1. Load Toronto Bids solicitations and awarded contracts from cache or live CKAN.
+2. Filter records locally, using RAPIDS/cuDF when available and Python fallback otherwise.
+3. Apply deterministic profile fit gates for category, deadline, scope, capacity, missing capabilities, and bid effort.
+4. Attach historical-award RAG evidence for realistic analogs.
+5. Train/apply local scikit-learn award-history market and value models.
+6. Estimate bid range, win probability, expected profit, and bid prep cost.
+7. Simulate revenue outcomes.
+8. Optimize the bid portfolio with cuOpt MILP when available, otherwise deterministic greedy fallback.
+9. Enrich only shortlisted candidates with local Nemotron/NIM structured requirements and owner brief fields.
+10. Return the owner inbox plus the proof metrics judges can inspect.
+
+The model explains and drafts from computed evidence; it does not replace the local bid-fitness engine.
+
+## Data and Caching
+
+Core V1 data sources:
+
+- [Toronto Bids Solicitations](https://open.toronto.ca/dataset/tobids-all-open-solicitations/) for current/open City opportunities.
+- [Toronto Bids Awarded Contracts](https://open.toronto.ca/dataset/tobids-awarded-contracts/) for historical award comparison.
+
+Cache behavior:
+
+- The app reads `data/cache/toronto_bids_solicitations.json` and `data/cache/toronto_bids_awarded_contracts.json` before live fetches unless `refresh=true`.
+- Successful live fetches write fresh cache files back to `data/cache`.
+- `CONTRACT_RADAR_OFFLINE=1` forces cached Toronto Open Data only.
+- If live/cache data is incomplete, the app fails loudly rather than showing fake demo postings.
+- `CONTRACT_RADAR_ALLOW_SAMPLE_DATA=1` unlocks bundled fixtures only for local tests. Do not use it for judged demos.
+
+During a normal app run, scans also use in-process caches:
+
+- shared data bundles and historical retrievers across same-lane variants;
+- listing-level Nemotron extraction cache keyed by the solicitation;
+- exact scan-result cache for identical profile/date/priority runs unless `refresh=true`.
+
+## Precomputed Scan Replay
+
+To generate replayable scan JSON:
+
+```bash
+python scripts/precompute_scan_cache.py --offline
+```
+
+The precompute script does not start managed Nemotron by itself; it uses the configured `NIM_BASE_URL`. On Spark, make sure the local Nemotron endpoint is already reachable and omit `--without-nemotron` so replay files can include local Nemotron briefs. For local deterministic replay generation:
+
+```powershell
+python scripts/precompute_scan_cache.py --offline --without-nemotron
+```
+
+Replay generated scans:
+
+```bash
+export CONTRACT_RADAR_OFFLINE=1
+export CONTRACT_RADAR_USE_PRECOMPUTED_SCAN=1
+python app.py --without-nemotron
+```
+
+Precomputed scans live under `data/precomputed/scans`. Leave `CONTRACT_RADAR_USE_PRECOMPUTED_SCAN` unset when you want to prove the full live pipeline.
+
+## NVIDIA Story
+
+SoBid uses DGX Spark as the local AI/data workstation:
+
+- business profile, capacity, procurement strategy, and scan results stay local;
+- RAPIDS/cuDF accelerates raw-record filtering when installed;
+- cuOpt selects an owner-capacity-aware bid portfolio when its Python MILP API is available;
+- Nemotron/NIM extracts structured requirements and owner-ready bid brief text only for shortlisted opportunities;
+- metrics expose active NVIDIA tools, records/sec, shortlist reduction, model calls avoided, cuOpt mode, Nemotron mode, and market-model proof.
+
+If NVIDIA components are unavailable, the deterministic local path remains usable and the UI names the fallback state explicitly.
+
+## Environment Variables
+
+Common local/demo variables:
+
+```powershell
+$env:HOST="127.0.0.1"
+$env:PORT="8080"
+$env:CONTRACT_RADAR_CACHE_DIR="data/cache"
+$env:CONTRACT_RADAR_OFFLINE="0"
+$env:CONTRACT_RADAR_REFRESH="0"
+$env:CONTRACT_RADAR_ROW_LIMIT="10000"
+$env:CONTRACT_RADAR_ALLOW_SAMPLE_DATA="0"
+$env:CONTRACT_RADAR_DISABLE_NEMOTRON="0"
+$env:CONTRACT_RADAR_USE_PRECOMPUTED_SCAN="0"
+$env:CONTRACT_RADAR_PRECOMPUTED_DIR="data/precomputed"
+$env:CONTRACT_RADAR_DISABLE_SCAN_RESULT_CACHE="0"
+```
+
+Nemotron/NIM variables:
+
+```powershell
+$env:NIM_BASE_URL="http://localhost:8000/v1"
+$env:NIM_MODEL="nvidia/llama-3.1-nemotron-70b-instruct"
+$env:NIM_API_KEY=""
+$env:NIM_PREFLIGHT_TIMEOUT_SECONDS="2"
+$env:NIM_TIMEOUT_SECONDS="45"
+$env:NIM_PREFLIGHT_CACHE_SECONDS="30"
+$env:CONTRACT_RADAR_NIM_SHORTLIST_LIMIT="3"
+```
+
+Managed DGX Spark Nemotron variables:
+
+```powershell
+$env:CONTRACT_RADAR_NEMOTRON_PORT="30000"
+$env:CONTRACT_RADAR_NEMOTRON_BASE_URL="http://127.0.0.1:30000/v1"
+$env:CONTRACT_RADAR_NEMOTRON_HOME="$HOME/.contract-radar/nemotron"
+$env:CONTRACT_RADAR_NEMOTRON_MODEL_REPO="unsloth/Nemotron-3-Nano-30B-A3B-GGUF"
+$env:CONTRACT_RADAR_NEMOTRON_MODEL_DIR="data/models/nemotron3-gguf"
+$env:CONTRACT_RADAR_NEMOTRON_MODEL_FILE="Nemotron-3-Nano-30B-A3B-UD-Q4_K_XL.gguf"
+$env:CONTRACT_RADAR_NEMOTRON_MODEL_NAME="nemotron"
+$env:CONTRACT_RADAR_NEMOTRON_GPU_LAYERS="99"
+$env:CONTRACT_RADAR_NEMOTRON_CTX_SIZE="8192"
+$env:CONTRACT_RADAR_NEMOTRON_THREADS="8"
+$env:CONTRACT_RADAR_NEMOTRON_READY_TIMEOUT_SECONDS="900"
+```
+
+cuOpt variables:
+
+```powershell
+$env:CONTRACT_RADAR_AUTO_INSTALL_CUOPT="1"
+$env:CONTRACT_RADAR_CUDA_MAJOR="13"
+$env:CONTRACT_RADAR_CUOPT_PACKAGE="cuopt-cu13"
+$env:CONTRACT_RADAR_CUOPT_VERSION="26.4.*"
+```
+
+`requirements.txt` uses NVIDIA CUDA 13 RAPIDS/cuDF and cuOpt packages on Linux. If the Spark image is CUDA 12, swap `cudf-cu13`/`cuopt-cu13` for the matching CUDA 12 package names before installing.
+
+## Repository Layout
+
+```text
+app.py                         HTTP server and CLI flags
+static/                        SoBid frontend
+contract_radar/                procurement engine, models, data, ranking, NIM, portfolio logic
+scripts/smoke_api.py           running-app API smoke test
+scripts/benchmark_pipeline.py  performance and NVIDIA readiness proof
+scripts/evaluate_bid_engine.py naive keyword baseline comparison
+scripts/train_bid_ranker.py    local ranker/value-model evaluation
+scripts/precompute_scan_cache.py replay JSON generation
+scripts/setup_spark.sh         DGX Spark Python environment setup
+tests/                         unit tests
+```
+
+Ignored/generated paths include `.venv`, `data/cache`, `data/output`, GGUF model files, Python caches, and local app-server PID files.
+
+## Later Source Expansion
+
+V1 proves the local intelligence engine on Toronto Open Data. Future source connectors can feed the same bid/no-bid pipeline:
+
+- Toronto Bids Portal / SAP Ariba packages beyond the open-data export;
+- CanadaBuys;
+- Ontario Tenders Portal;
+- TTC / MERX;
+- nearby municipalities in the GTA;
+- bids&tenders / Link2Build for construction-heavy Ontario opportunities.

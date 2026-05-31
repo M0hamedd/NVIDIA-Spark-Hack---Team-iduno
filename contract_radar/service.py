@@ -228,6 +228,18 @@ def _metrics(
         active_nvidia_tools.append("RAPIDS/cuDF")
     if nemotron_mode == "local_nim":
         active_nvidia_tools.append("NIM/Nemotron")
+    warnings = list(getattr(data_bundle, "warnings", []))
+    if nemotron_mode != "local_nim":
+        nim_preflight = nemotron_stats.get("nim_preflight") if isinstance(nemotron_stats, dict) else {}
+        preflight_reason = (
+            str(nim_preflight.get("reason") or "")
+            if isinstance(nim_preflight, dict)
+            else ""
+        )
+        failure_reason = str(nemotron_stats.get("model_failure_reason") or "")
+        reason = failure_reason or preflight_reason
+        if reason:
+            warnings.append(f"Nemotron brief fallback: {reason}")
     return PipelineMetrics(
         solicitations_loaded=len(data_bundle.solicitations),
         awards_loaded=len(data_bundle.awards),
@@ -256,7 +268,7 @@ def _metrics(
         nvidia_stack_active=bool(active_nvidia_tools),
         active_nvidia_tools=active_nvidia_tools,
         fetched_at=getattr(data_bundle, "fetched_at", ""),
-        warnings=getattr(data_bundle, "warnings", []),
+        warnings=warnings,
     )
 
 

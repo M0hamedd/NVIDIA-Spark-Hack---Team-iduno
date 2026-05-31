@@ -114,8 +114,10 @@ async function checkHealth() {
     }
     $("healthStatus").textContent = "City listings ready";
     $("healthStatus").className = "status-pill ok";
-    $("gpuStatus").textContent = `Local: ${compactRuntimeStatus(health.gpu)}`;
+    $("gpuStatus").textContent = `Data: ${compactRuntimeStatus(health.gpu)}`;
+    $("gpuStatus").title = runtimeStatusDetail(health.gpu);
     $("nemotronStatus").textContent = `Brief: ${compactRuntimeStatus(health.nemotron)}`;
+    $("nemotronStatus").title = runtimeStatusDetail(health.nemotron);
     if (!state.supportedProfiles.length) {
       setBusy(false);
       showToast("No supported business types were returned.");
@@ -2357,6 +2359,13 @@ function formatStatus(value) {
     if (Object.prototype.hasOwnProperty.call(value, "rapids_cudf_available")) {
       return value.rapids_cudf_available ? "RAPIDS ready" : "CPU fallback";
     }
+    if (Object.prototype.hasOwnProperty.call(value, "nim_mode") || Object.prototype.hasOwnProperty.call(value, "available")) {
+      if (value.available || value.nim_mode === "local_nim" || value.nim_mode === "local_nim_available") {
+        return "local NIM ready";
+      }
+      const reason = value.preflight && value.preflight.reason ? ` (${humanizeToken(value.preflight.reason)})` : "";
+      return `local fallback${reason}`;
+    }
     if (value.mode && value.fallback) {
       if (value.fallback === "none") {
         return value.mode;
@@ -2377,13 +2386,35 @@ function compactRuntimeStatus(value) {
   if (normalized.includes("cpu fallback")) {
     return "CPU local";
   }
-  if (normalized.includes("fallback")) {
-    return "local fallback";
-  }
   if (normalized.includes("local_nim")) {
     return "local NIM";
   }
+  if (normalized.includes("local nim ready")) {
+    return "local NIM";
+  }
+  if (normalized.includes("fallback")) {
+    return "local fallback";
+  }
   return shortText(formatted, 18);
+}
+
+function runtimeStatusDetail(value) {
+  if (!value || typeof value !== "object") {
+    return formatStatus(value);
+  }
+  if (Object.prototype.hasOwnProperty.call(value, "rapids_cudf_available")) {
+    return value.rapids_cudf_available
+      ? `RAPIDS/cuDF ready${value.cudf_version ? ` (${value.cudf_version})` : ""}`
+      : "RAPIDS/cuDF is not available; using CPU local filtering.";
+  }
+  if (Object.prototype.hasOwnProperty.call(value, "nim_mode") || Object.prototype.hasOwnProperty.call(value, "available")) {
+    const preflight = value.preflight || {};
+    const detail = preflight.detail ? `: ${preflight.detail}` : "";
+    return value.available
+      ? `Local Nemotron/NIM ready at ${value.base_url || preflight.base_url || "configured endpoint"}.`
+      : `Local Nemotron/NIM unavailable at ${value.base_url || preflight.base_url || "configured endpoint"}; using deterministic fallback${detail}.`;
+  }
+  return formatStatus(value);
 }
 
 function formatMoney(value) {

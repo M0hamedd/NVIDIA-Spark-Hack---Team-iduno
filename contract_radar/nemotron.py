@@ -15,7 +15,8 @@ from contract_radar.models import BusinessProfile, EvaluatedOpportunity, Opportu
 DEFAULT_BASE_URL = "http://localhost:8000/v1"
 DEFAULT_MODEL = "nvidia/llama-3.1-nemotron-70b-instruct"
 TOP_CANDIDATE_LIMIT = int(os.environ.get("CONTRACT_RADAR_NIM_SHORTLIST_LIMIT", "24") or "24")
-NIM_PREFLIGHT_TIMEOUT_SECONDS = 0.2
+NIM_PREFLIGHT_TIMEOUT_SECONDS = 2.0
+NIM_CHAT_TIMEOUT_SECONDS = 45.0
 NIM_PREFLIGHT_CACHE_SECONDS = 30.0
 _NIM_PREFLIGHT_CACHE: dict[str, dict[str, Any]] = {}
 
@@ -224,10 +225,11 @@ def _enrich_top_opportunities(
                 and enriched_item.pre_extraction_label != enriched_item.label
             )
             enriched.append(enriched_item)
-        except Exception:
+        except Exception as exc:
             mode = "deterministic_fallback"
             _open_nim_circuit()
             stats["model_calls_failed"] += 1
+            stats["model_failure_reason"] = str(exc)[:180] or exc.__class__.__name__
             stats["model_calls_avoided_by_failure"] = top_count - stats["model_calls_attempted"]
             fallback = _fallback_enrich(profile, opportunities)
             stats["model_calls_successful"] = 0
@@ -292,7 +294,7 @@ def _chat_completion(prompt: str, with_schema: bool) -> str:
         headers["Authorization"] = f"Bearer {api_key}"
 
     endpoint = f"{_base_url()}/chat/completions"
-    timeout = float(os.environ.get("NIM_TIMEOUT_SECONDS", "3.0"))
+    timeout = float(os.environ.get("NIM_TIMEOUT_SECONDS", str(NIM_CHAT_TIMEOUT_SECONDS)))
     req = request.Request(endpoint, data=body, headers=headers, method="POST")
     try:
         with request.urlopen(req, timeout=timeout) as response:
@@ -1012,6 +1014,7 @@ def _empty_enrichment_stats(opportunity_count: int) -> dict[str, Any]:
         "label_changes_after_extraction": 0,
         "model_calls_avoided_by_preflight": 0,
         "model_calls_avoided_by_failure": 0,
+        "model_failure_reason": "",
         "nim_preflight": {"available": False, "reason": "not_checked"},
     }
 

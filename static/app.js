@@ -706,6 +706,7 @@ function renderSelectedOpportunityDetail(item) {
     : "Confirm the official Toronto package before assigning estimating time.";
   const buyerText = buyer || "Toronto contact not listed";
   const title = getCompactOpportunityTitle(item, 190);
+  const portfolioBlock = renderPortfolioDecisionBlock(item);
 
   container.className = "selected-detail";
   container.innerHTML = `
@@ -737,6 +738,7 @@ function renderSelectedOpportunityDetail(item) {
         ${renderDecisionBriefBlock("Documents", documentText)}
         ${renderDecisionBriefBlock("What To Check", blockerText, blockers.length ? "warning" : "")}
       </div>
+      ${portfolioBlock}
     </article>
   `;
 }
@@ -761,6 +763,40 @@ function renderDecisionBriefBlock(label, body, tone = "") {
     <section class="brief-block ${escapeHtml(toneClass)}">
       <span class="selected-detail-label">${escapeHtml(label)}</span>
       <p>${escapeHtml(cleanDisplayText(body))}</p>
+    </section>
+  `;
+}
+
+function renderPortfolioDecisionBlock(item) {
+  const decision = item && item.portfolio_decision;
+  if (!decision || !decision.decision) {
+    return "";
+  }
+  const engine = portfolioEngineLabel(decision.engine);
+  const capacity = decision.capacity_used ? "Uses pursuit capacity" : "No pursuit slot used";
+  const facts = [
+    ["Decision", decision.decision],
+    ["Expected Value", decision.expected_value ? formatMoney(decision.expected_value) : "Not estimated"],
+    ["Estimator Time", decision.estimator_hours ? `${number(decision.estimator_hours)} hours` : "Not estimated"],
+    ["Engine", engine]
+  ];
+  const reason = firstItems(decision.reasons || [], 1)[0] || portfolioLanguage(item);
+  return `
+    <section class="portfolio-decision-block">
+      <div>
+        <span class="selected-detail-label">Portfolio Decision</span>
+        <strong>${escapeHtml(decision.decision)}</strong>
+        <p>${escapeHtml(cleanDisplayText(reason))}</p>
+      </div>
+      <dl>
+        ${facts.map(([label, value]) => `
+          <div>
+            <dt>${escapeHtml(label)}</dt>
+            <dd>${escapeHtml(value)}</dd>
+          </div>
+        `).join("")}
+      </dl>
+      <em>${escapeHtml(capacity)}</em>
     </section>
   `;
 }
@@ -1093,6 +1129,7 @@ function renderScorecard(result) {
     ["Training Rows", number(metrics.market_model_examples), `${number(metrics.market_model_positive_examples)} positives`],
     ["Value Error", percent(metrics.value_model_mape), `MAE ${formatMoney(metrics.value_model_mae || 0)}`],
     ["Runtime Path", nvidiaPathLabel(metrics), `${metrics.rapids_mode || "python"} / ${metrics.nim_mode || "fallback"}`],
+    ["cuOpt Portfolio", portfolioEngineLabel(metrics.cuopt_mode), portfolioModeDetail(metrics)],
     ["Brief Cache", number(metrics.listing_extraction_cache_hits), `${number(metrics.briefs_generated)} generated`],
     ["Local Speed", number(metrics.local_records_per_second_excluding_nemotron || metrics.records_per_second), "records/sec"],
     ["Pricing Coverage", percent(safeRatio(priced.length, (result.top_opportunities || []).length + (result.watchlist || []).length)), `${number(priced.length)} priced`]
@@ -1920,6 +1957,33 @@ function portfolioLanguage(item) {
   const effort = decision.estimator_hours ? ` Estimator effort ${number(decision.estimator_hours)} hours.` : "";
   const reason = firstItems(decision.reasons || [], 1)[0] || "";
   return `${decision.decision}.${value}${effort} ${reason}`.replace(/\s+/g, " ").trim();
+}
+
+function portfolioEngineLabel(engine) {
+  if (engine === "cuopt_milp") {
+    return "cuOpt MILP";
+  }
+  if (engine === "greedy_fallback_after_cuopt_error") {
+    return "Fallback after cuOpt";
+  }
+  if (engine === "greedy_fallback") {
+    return "Greedy fallback";
+  }
+  return titleCase(humanizeToken(engine || "portfolio optimizer"));
+}
+
+function portfolioModeDetail(metrics) {
+  const activeTools = (metrics && metrics.active_nvidia_tools) || [];
+  if (metrics && metrics.cuopt_mode === "cuopt_milp") {
+    return "capacity solve active";
+  }
+  if (activeTools.includes("cuOpt")) {
+    return "cuOpt active";
+  }
+  if (metrics && metrics.cuopt_mode === "greedy_fallback_after_cuopt_error") {
+    return "cuOpt attempted";
+  }
+  return "fallback ready";
 }
 
 function marketFitLabel(market) {

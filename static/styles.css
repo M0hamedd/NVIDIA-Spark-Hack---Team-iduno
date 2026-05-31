@@ -2185,6 +2185,87 @@ button:disabled {
   grid-column: 1 / -1;
 }
 
+.portfolio-decision-block {
+  display: grid;
+  grid-template-columns: minmax(0, 0.95fr) minmax(260px, 1fr) auto;
+  gap: 10px;
+  align-items: stretch;
+  border: 1px solid #bfd9df;
+  border-left: 5px solid var(--blue);
+  border-radius: var(--radius);
+  padding: 12px;
+  background: #f5fbfc;
+}
+
+.portfolio-decision-block > div {
+  min-width: 0;
+}
+
+.portfolio-decision-block strong {
+  display: block;
+  margin-top: 4px;
+  color: var(--ink);
+  font-size: 1.2rem;
+  line-height: 1.08;
+  overflow-wrap: anywhere;
+}
+
+.portfolio-decision-block p {
+  margin: 6px 0 0;
+  color: var(--ink-soft);
+  font-size: 0.88rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.portfolio-decision-block dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  margin: 0;
+}
+
+.portfolio-decision-block dl div {
+  min-width: 0;
+  border: 1px solid #d4e5e9;
+  border-radius: var(--radius-sm);
+  padding: 8px;
+  background: #fff;
+}
+
+.portfolio-decision-block dt {
+  color: var(--muted);
+  font-size: 0.62rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.portfolio-decision-block dd {
+  margin: 3px 0 0;
+  color: var(--ink);
+  font-size: 0.88rem;
+  font-weight: 850;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
+.portfolio-decision-block em {
+  display: grid;
+  align-content: center;
+  min-width: 104px;
+  border: 1px solid #bfd9df;
+  border-radius: var(--radius-sm);
+  padding: 8px;
+  color: var(--blue-dark);
+  background: #fff;
+  font-size: 0.72rem;
+  font-style: normal;
+  font-weight: 850;
+  line-height: 1.15;
+  text-align: center;
+  text-transform: uppercase;
+}
+
 .queue-column .panel-heading-row,
 .dossier-column .panel-heading-row {
   min-height: 48px;
@@ -2222,8 +2303,13 @@ button:disabled {
 
   .contract-hero,
   .hero-facts,
-  .quick-read-grid {
+  .quick-read-grid,
+  .portfolio-decision-block {
     grid-template-columns: 1fr;
+  }
+
+  .portfolio-decision-block em {
+    min-width: 0;
   }
 }
 

@@ -5,6 +5,7 @@ from datetime import date
 from contract_radar.history import compare_history, meaningful_terms
 from contract_radar.models import (
     AwardRecord,
+    BidFitnessTrace,
     BusinessProfile,
     CapacityAssessment,
     EvaluatedOpportunity,
@@ -90,27 +91,43 @@ def _evaluate_one(
     rank_score = 0
 
     if days_until_deadline is not None and days_until_deadline < 0:
+        rejection_reasons = ["expired"]
+        reasons = ["Submission deadline has passed."]
+        historical = HistoricalComparison(
+            accessibility="not compared",
+            evidence=["Expired opportunity skipped before historical comparison."],
+        )
+        capacity_assessment = _capacity_assessment(
+            profile=profile,
+            label="Skip",
+            days_until_deadline=days_until_deadline,
+            historical=HistoricalComparison(accessibility="not compared"),
+            missing=missing,
+            type_complexity=type_complexity,
+            rejection_reasons=rejection_reasons,
+        )
         return EvaluatedOpportunity(
             solicitation=solicitation,
             label="Skip",
             rank_score=0,
             matched_terms=matched_terms,
             missing_requirements=missing,
-            reasons=["Submission deadline has passed."],
-            rejection_reasons=["expired"],
+            reasons=reasons,
+            rejection_reasons=rejection_reasons,
             days_until_deadline=days_until_deadline,
-            historical=HistoricalComparison(
-                accessibility="not compared",
-                evidence=["Expired opportunity skipped before historical comparison."],
-            ),
-            capacity_assessment=_capacity_assessment(
-                profile=profile,
+            historical=historical,
+            capacity_assessment=capacity_assessment,
+            bid_fitness_trace=_bid_fitness_trace(
                 label="Skip",
-                days_until_deadline=days_until_deadline,
-                historical=HistoricalComparison(accessibility="not compared"),
+                rank_score=0,
+                matched_terms=matched_terms,
                 missing=missing,
+                rejection_reasons=rejection_reasons,
                 type_complexity=type_complexity,
-                rejection_reasons=["expired"],
+                days_until_deadline=days_until_deadline,
+                historical=historical,
+                capacity_assessment=capacity_assessment,
+                reasons=reasons,
             ),
         )
 
@@ -118,27 +135,43 @@ def _evaluate_one(
         rank_score += min(len(matched_terms), 8) * 10
         reasons.append(f"Matches {len(matched_terms)} business capability terms.")
     else:
+        rejection_reasons = ["wrong service/category"]
+        reasons = ["No capability terms matched this business profile."]
+        historical = HistoricalComparison(
+            accessibility="not compared",
+            evidence=["Wrong-fit opportunity skipped before historical comparison."],
+        )
+        capacity_assessment = _capacity_assessment(
+            profile=profile,
+            label="Skip",
+            days_until_deadline=days_until_deadline,
+            historical=HistoricalComparison(accessibility="not compared"),
+            missing=missing,
+            type_complexity=type_complexity,
+            rejection_reasons=rejection_reasons,
+        )
         return EvaluatedOpportunity(
             solicitation=solicitation,
             label="Skip",
             rank_score=0,
             matched_terms=[],
             missing_requirements=missing,
-            reasons=["No capability terms matched this business profile."],
-            rejection_reasons=["wrong service/category"],
+            reasons=reasons,
+            rejection_reasons=rejection_reasons,
             days_until_deadline=days_until_deadline,
-            historical=HistoricalComparison(
-                accessibility="not compared",
-                evidence=["Wrong-fit opportunity skipped before historical comparison."],
-            ),
-            capacity_assessment=_capacity_assessment(
-                profile=profile,
+            historical=historical,
+            capacity_assessment=capacity_assessment,
+            bid_fitness_trace=_bid_fitness_trace(
                 label="Skip",
-                days_until_deadline=days_until_deadline,
-                historical=HistoricalComparison(accessibility="not compared"),
+                rank_score=0,
+                matched_terms=[],
                 missing=missing,
+                rejection_reasons=rejection_reasons,
                 type_complexity=type_complexity,
-                rejection_reasons=["wrong service/category"],
+                days_until_deadline=days_until_deadline,
+                historical=historical,
+                capacity_assessment=capacity_assessment,
+                reasons=reasons,
             ),
         )
 
@@ -228,6 +261,18 @@ def _evaluate_one(
             capacity_assessment=capacity_assessment,
         )
     )
+    bid_fitness_trace = _bid_fitness_trace(
+        label=label,
+        rank_score=rank_score,
+        matched_terms=matched_terms,
+        missing=missing,
+        rejection_reasons=rejection_reasons,
+        type_complexity=type_complexity,
+        days_until_deadline=days_until_deadline,
+        historical=historical,
+        capacity_assessment=capacity_assessment,
+        reasons=reasons,
+    )
 
     return EvaluatedOpportunity(
         solicitation=solicitation,
@@ -240,6 +285,7 @@ def _evaluate_one(
         days_until_deadline=days_until_deadline,
         historical=historical,
         capacity_assessment=capacity_assessment,
+        bid_fitness_trace=bid_fitness_trace,
     )
 
 
@@ -327,24 +373,403 @@ def _supporting_evidence(
     historical: HistoricalComparison,
     capacity_assessment: CapacityAssessment,
 ) -> list[str]:
+    return [
+        f"{label_name}: {label_value}."
+        for label_name, label_value in _scorecard_labels(
+            label=label,
+            rank_score=rank_score,
+            matched_terms=matched_terms,
+            missing=missing,
+            rejection_reasons=rejection_reasons,
+            type_complexity=type_complexity,
+            days_until_deadline=days_until_deadline,
+            historical=historical,
+            capacity_assessment=capacity_assessment,
+        ).items()
+    ]
+
+
+def _scorecard_labels(
+    label: str,
+    rank_score: int,
+    matched_terms: list[str],
+    missing: list[str],
+    rejection_reasons: list[str],
+    type_complexity: str,
+    days_until_deadline: int | None,
+    historical: HistoricalComparison,
+    capacity_assessment: CapacityAssessment,
+) -> dict[str, str]:
     core_fit = "Strong" if len(matched_terms) >= 4 else "Partial" if len(matched_terms) >= 2 else "Weak"
     eligibility = _eligibility_label(label, missing, rejection_reasons, type_complexity)
     effort = _pursuit_effort(type_complexity, missing)
     deadline_risk = _deadline_risk(days_until_deadline)
     competition = _competition_label(historical)
     strategic_value = _strategic_value(rank_score, historical)
-    return [
-        f"Core Fit: {core_fit}.",
-        f"Eligibility: {eligibility}.",
-        f"Competition: {competition}.",
-        f"Pursuit Effort: {effort}.",
-        f"Deadline Risk: {deadline_risk}.",
-        f"Strategic Value: {strategic_value}.",
-        f"Pursuit Load: {capacity_assessment.pursuit_load}.",
-        f"Response Capacity: {capacity_assessment.response_capacity}.",
-        f"Execution Capacity: {capacity_assessment.execution_capacity}.",
-        f"Recommended Action: {capacity_assessment.recommended_action}.",
+    return {
+        "Core Fit": core_fit,
+        "Eligibility": eligibility,
+        "Competition": competition,
+        "Pursuit Effort": effort,
+        "Deadline Risk": deadline_risk,
+        "Strategic Value": strategic_value,
+        "Pursuit Load": capacity_assessment.pursuit_load,
+        "Response Capacity": capacity_assessment.response_capacity,
+        "Execution Capacity": capacity_assessment.execution_capacity,
+        "Recommended Action": capacity_assessment.recommended_action,
+    }
+
+
+def _bid_fitness_trace(
+    label: str,
+    rank_score: int,
+    matched_terms: list[str],
+    missing: list[str],
+    rejection_reasons: list[str],
+    type_complexity: str,
+    days_until_deadline: int | None,
+    historical: HistoricalComparison,
+    capacity_assessment: CapacityAssessment,
+    reasons: list[str],
+) -> BidFitnessTrace:
+    matched = sorted(set(matched_terms))
+    missing_requirements = sorted(set(missing))
+    rejections = sorted(set(rejection_reasons))
+    scorecard_labels = _scorecard_labels(
+        label=label,
+        rank_score=rank_score,
+        matched_terms=matched,
+        missing=missing_requirements,
+        rejection_reasons=rejections,
+        type_complexity=type_complexity,
+        days_until_deadline=days_until_deadline,
+        historical=historical,
+        capacity_assessment=capacity_assessment,
+    )
+    hard_blockers = _trace_hard_blockers(label, missing_requirements, rejections, days_until_deadline)
+    soft_warnings = _trace_soft_warnings(
+        label=label,
+        missing=missing_requirements,
+        rejection_reasons=rejections,
+        type_complexity=type_complexity,
+        days_until_deadline=days_until_deadline,
+        capacity_assessment=capacity_assessment,
+    )
+    positive_signals = _trace_positive_signals(
+        matched_terms=matched,
+        type_complexity=type_complexity,
+        days_until_deadline=days_until_deadline,
+        historical=historical,
+        capacity_assessment=capacity_assessment,
+        reasons=reasons,
+    )
+    return BidFitnessTrace(
+        hard_blockers=hard_blockers,
+        soft_warnings=soft_warnings,
+        positive_signals=positive_signals,
+        requirement_signals=_trace_requirement_signals(matched, missing_requirements, type_complexity, label),
+        historical_analogs=_trace_historical_analogs(historical),
+        capacity_gates=_trace_capacity_gates(capacity_assessment),
+        scorecard_labels=scorecard_labels,
+        rules_triggered=_trace_rules_triggered(
+            label=label,
+            matched_terms=matched,
+            rejection_reasons=rejections,
+            type_complexity=type_complexity,
+            days_until_deadline=days_until_deadline,
+            historical=historical,
+            capacity_assessment=capacity_assessment,
+        ),
+        final_rationale=_trace_final_rationale(label, hard_blockers, soft_warnings, positive_signals, scorecard_labels),
+    )
+
+
+def _trace_hard_blockers(
+    label: str,
+    missing: list[str],
+    rejection_reasons: list[str],
+    days_until_deadline: int | None,
+) -> list[str]:
+    if label != "Skip":
+        return []
+
+    blockers: list[str] = []
+    if "expired" in rejection_reasons:
+        blockers.append(f"Submission deadline is closed; {_deadline_phrase(days_until_deadline)}.")
+    if "wrong service/category" in rejection_reasons:
+        blockers.append("No matching business capability terms were found for this profile.")
+    if "blocked capability mismatch" in rejection_reasons:
+        blockers.append(_profile_exclusion_message(missing))
+    if "historical awards above capacity" in rejection_reasons:
+        blockers.append("Similar historical awards appear above the current contract capacity.")
+    if "large construction/design-build scope" in rejection_reasons:
+        blockers.append("Scope indicates large or design-build delivery outside the current profile.")
+    if "unclear deadline" in rejection_reasons:
+        blockers.append("Submission deadline is unclear, so bid timing cannot be confirmed.")
+    if "complex solicitation type" in rejection_reasons:
+        blockers.append("Solicitation format is complex for this profile without owner review.")
+    if "weak evidence" in rejection_reasons:
+        blockers.append("Fit evidence is too weak to recommend a bid.")
+
+    if not blockers:
+        blockers.append("Decision is Skip because the available evidence does not support a viable bid.")
+    return _unique_messages(blockers)
+
+
+def _trace_soft_warnings(
+    label: str,
+    missing: list[str],
+    rejection_reasons: list[str],
+    type_complexity: str,
+    days_until_deadline: int | None,
+    capacity_assessment: CapacityAssessment,
+) -> list[str]:
+    warnings = [
+        warning
+        for warning in capacity_assessment.warnings
+        if not (
+            days_until_deadline is not None
+            and days_until_deadline < 0
+            and warning.startswith("Response Capacity:")
+        )
     ]
+    if label != "Skip" and days_until_deadline is None:
+        warnings.append("Deadline: unclear deadline; confirm bid timing before committing.")
+    elif label != "Skip" and days_until_deadline is not None and 0 <= days_until_deadline < URGENCY_WINDOW_DAYS:
+        warnings.append(f"Deadline: urgent response window; {_deadline_phrase(days_until_deadline)}.")
+
+    if label != "Skip" and type_complexity == "complex":
+        warnings.append("Solicitation Type: complex format; confirm proposal effort and prerequisites.")
+    if label != "Skip" and missing:
+        warnings.append(f"Requirement Review: confirm {', '.join(missing[:3])}.")
+    if label != "Skip" and "historical awards above capacity" in rejection_reasons:
+        warnings.append("Historical Size: similar awards may exceed the current comfort range.")
+    if capacity_assessment.recommended_action == "Pursue After Review":
+        warnings.append("Capacity Gate: owner review required before committing pursuit resources.")
+    return _unique_messages(warnings)
+
+
+def _trace_positive_signals(
+    matched_terms: list[str],
+    type_complexity: str,
+    days_until_deadline: int | None,
+    historical: HistoricalComparison,
+    capacity_assessment: CapacityAssessment,
+    reasons: list[str],
+) -> list[str]:
+    signals: list[str] = []
+    if matched_terms:
+        signals.append(f"Capability fit: {', '.join(matched_terms[:5])}.")
+    if _has_specific_match(matched_terms):
+        signals.append("Specific capability terms matched beyond generic municipal language.")
+    if type_complexity == "accessible":
+        signals.append("RFQ/quotation format is usually easier for a small vendor to pursue.")
+    elif type_complexity == "standard":
+        signals.append("Solicitation format is standard for this profile.")
+    if historical.similar_count:
+        signals.append(f"Historical comparison found similar awards: {historical.accessibility}.")
+    if "accessible" in historical.accessibility.lower():
+        signals.append("Similar historical awards look accessible for this business size.")
+    if capacity_assessment.recommended_action == "Pursue Now":
+        signals.append("Capacity gates support immediate pursuit.")
+    if days_until_deadline is not None and days_until_deadline >= URGENCY_WINDOW_DAYS:
+        signals.append(f"Deadline leaves a workable response window; {_deadline_phrase(days_until_deadline)}.")
+
+    for reason in reasons:
+        if _is_trace_positive_reason(reason):
+            signals.append(reason)
+    return _unique_messages(signals)
+
+
+def _trace_requirement_signals(
+    matched_terms: list[str],
+    missing: list[str],
+    type_complexity: str,
+    label: str,
+) -> list[str]:
+    signals: list[str] = []
+    signals.extend(f"Matched capability: {term}." for term in matched_terms[:6])
+    if missing:
+        prefix = "Profile exclusion" if label == "Skip" else "Needs review or partner"
+        signals.extend(f"{prefix}: {requirement}." for requirement in missing[:6])
+    elif matched_terms:
+        signals.append("No missing profile capability was triggered by the description.")
+    if type_complexity == "accessible":
+        signals.append("Procurement format signal: accessible RFQ/quotation.")
+    elif type_complexity == "complex":
+        signals.append("Procurement format signal: complex proposal or qualification process.")
+    else:
+        signals.append("Procurement format signal: standard solicitation.")
+    return _unique_messages(signals)
+
+
+def _trace_historical_analogs(historical: HistoricalComparison) -> list[str]:
+    analogs = list(historical.evidence[:5])
+    if historical.accessibility:
+        analogs.append(f"Historical accessibility: {historical.accessibility}.")
+    if not analogs:
+        analogs.append("Historical comparison was not available.")
+    return _unique_messages(analogs)
+
+
+def _trace_capacity_gates(capacity_assessment: CapacityAssessment) -> list[str]:
+    return _unique_messages(
+        [
+            f"Pursuit Load: {capacity_assessment.pursuit_load}.",
+            f"Response Capacity: {capacity_assessment.response_capacity}.",
+            f"Execution Capacity: {capacity_assessment.execution_capacity}.",
+            f"Recommended Action: {capacity_assessment.recommended_action}.",
+        ]
+    )
+
+
+def _trace_rules_triggered(
+    label: str,
+    matched_terms: list[str],
+    rejection_reasons: list[str],
+    type_complexity: str,
+    days_until_deadline: int | None,
+    historical: HistoricalComparison,
+    capacity_assessment: CapacityAssessment,
+) -> list[str]:
+    rules: list[str] = []
+    rules.append("Capability match rule" if matched_terms else "No capability match rule")
+    if matched_terms and not _has_specific_match(matched_terms):
+        rules.append("Generic-match guard rule")
+    if type_complexity == "accessible":
+        rules.append("Accessible RFQ/quotation rule")
+    elif type_complexity == "complex":
+        rules.append("Complex solicitation type rule")
+    else:
+        rules.append("Standard solicitation type rule")
+
+    if days_until_deadline is None:
+        rules.append("Deadline rule: unclear")
+    elif days_until_deadline < 0:
+        rules.append("Deadline rule: expired")
+    elif days_until_deadline < URGENCY_WINDOW_DAYS:
+        rules.append("Deadline rule: urgent")
+    else:
+        rules.append("Deadline rule: workable")
+
+    if historical.similar_count:
+        if "accessible" in historical.accessibility.lower():
+            rules.append("Historical analog rule: accessible")
+        elif "larger" in historical.accessibility.lower():
+            rules.append("Historical analog rule: above capacity")
+        else:
+            rules.append("Historical analog rule: review")
+    else:
+        rules.append("Historical analog rule: insufficient history")
+
+    rejection_rule_labels = {
+        "blocked capability mismatch": "False-positive blocker: blocked capability mismatch",
+        "wrong service/category": "False-positive blocker: wrong service/category",
+        "large construction/design-build scope": "Large/design-build scope rule",
+        "historical awards above capacity": "Historical capacity blocker rule",
+        "complex solicitation type": "Complex procurement review rule",
+        "unclear deadline": "Unclear deadline review rule",
+        "expired": "Expired opportunity blocker rule",
+        "weak evidence": "Weak-evidence decision rule",
+    }
+    rules.extend(rejection_rule_labels[reason] for reason in rejection_reasons if reason in rejection_rule_labels)
+
+    if capacity_assessment.recommended_action == "Pursue After Review":
+        rules.append("Capacity gate: pursue after review")
+    elif capacity_assessment.recommended_action == "Pursue Now":
+        rules.append("Capacity gate: pursue now")
+    elif capacity_assessment.recommended_action.startswith("Skip"):
+        rules.append("Capacity gate: skip")
+    else:
+        rules.append("Capacity gate: monitor")
+
+    rules.append(f"Final decision rule: {label}")
+    return _unique_messages(rules)
+
+
+def _trace_final_rationale(
+    label: str,
+    hard_blockers: list[str],
+    soft_warnings: list[str],
+    positive_signals: list[str],
+    scorecard_labels: dict[str, str],
+) -> str:
+    if hard_blockers:
+        return f"{label}: {_clean_sentence(hard_blockers[0])}."
+    if label == "Pursue":
+        signal = _clean_sentence(positive_signals[0]) if positive_signals else "fit and capacity signals are favorable"
+        action = scorecard_labels.get("Recommended Action", "Pursue Now")
+        return f"Pursue: {signal}. Recommended action is {action}."
+    if label == "Review":
+        warning = _clean_sentence(soft_warnings[0]) if soft_warnings else "owner review is needed before committing"
+        signal = _clean_sentence(positive_signals[0]) if positive_signals else "there is partial fit evidence"
+        return f"Review: {warning}. Main upside is {signal}."
+    if label == "Monitor":
+        signal = _clean_sentence(positive_signals[0]) if positive_signals else "fit evidence is not strong enough yet"
+        return f"Monitor: {signal}; watch for clearer eligibility or timing."
+    return "Skip: available evidence does not support a bid."
+
+
+def _profile_exclusion_message(missing: list[str]) -> str:
+    if not missing:
+        return "A profile exclusion was triggered by the solicitation scope."
+    return f"Required scope conflicts with profile exclusions: {', '.join(missing[:4])}."
+
+
+def _deadline_phrase(days_until_deadline: int | None) -> str:
+    if days_until_deadline is None:
+        return "deadline is unclear"
+    if days_until_deadline < 0:
+        return f"deadline passed {abs(days_until_deadline)} day(s) ago"
+    if days_until_deadline == 0:
+        return "deadline is today"
+    if days_until_deadline == 1:
+        return "1 day remains"
+    return f"{days_until_deadline} days remain"
+
+
+def _is_trace_positive_reason(reason: str) -> bool:
+    positive_prefixes = (
+        "Matches ",
+        "Category or description aligns",
+        "RFQ/quotation style",
+        "Similar historical awards were within",
+        "Similar awards run slightly above",
+        "Deadline is inside",
+        "Deadline leaves enough",
+    )
+    blocked_prefixes = (
+        "Core Fit:",
+        "Eligibility:",
+        "Competition:",
+        "Pursuit Effort:",
+        "Deadline Risk:",
+        "Strategic Value:",
+        "Pursuit Load:",
+        "Response Capacity:",
+        "Execution Capacity:",
+        "Recommended Action:",
+        "Some requirements",
+        "Capacity warning",
+        "Deadline is close",
+    )
+    return reason.startswith(positive_prefixes) and not reason.startswith(blocked_prefixes)
+
+
+def _clean_sentence(value: str) -> str:
+    return value.strip().rstrip(".")
+
+
+def _unique_messages(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    unique: list[str] = []
+    for value in values:
+        clean = value.strip()
+        key = clean.lower()
+        if clean and key not in seen:
+            seen.add(key)
+            unique.append(clean)
+    return unique
 
 
 def _capacity_assessment(

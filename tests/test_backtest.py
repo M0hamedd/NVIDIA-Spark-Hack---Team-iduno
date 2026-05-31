@@ -61,7 +61,19 @@ class BacktestScorecardTests(unittest.TestCase):
         self.assertGreaterEqual(scorecard["false_positives_skipped"], 1)
         self.assertGreaterEqual(scorecard["capacity_downgrades"], 1)
         self.assertGreaterEqual(scorecard["similar_awards_grounded"], 1)
-        self.assertIn("non-obvious revenue signal", scorecard["top_insight"])
+        self.assertEqual(scorecard["best_current_opportunity"]["document_number"], "RFQ-TRUE")
+        self.assertTrue(scorecard["best_current_opportunity"]["decision_reason"])
+        self.assertGreaterEqual(len(scorecard["similar_award_examples"]), 1)
+        self.assertTrue(scorecard["similar_award_range"])
+        self.assertGreaterEqual(scorecard["false_positive_categories"][0]["count"], 1)
+        self.assertEqual(scorecard["false_positive_categories"][0]["category"], "Professional Services")
+        self.assertGreaterEqual(scorecard["capacity_downgrade_reasons"][0]["count"], 1)
+        self.assertTrue(scorecard["capacity_examples"][0]["capacity_warnings"])
+        self.assertIn("data-backed bid signal", scorecard["top_insight"])
+        self.assertIn("Transportation Services", scorecard["top_insight"])
+        self.assertIn("$640,000-$1,180,000", scorecard["top_insight"])
+        self.assertIn("Professional Services/pure software implementation", scorecard["top_insight"])
+        self.assertIn("Action: prioritize owner review", scorecard["top_insight"])
 
 
 def _solicitation(

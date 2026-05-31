@@ -89,6 +89,12 @@ class MatcherTests(unittest.TestCase):
         self.assertLessEqual(result.historical.award_median, self.road_profile.max_contract_value)
         self.assertTrue(any("Core Fit:" in reason for reason in result.reasons))
         self.assertEqual(result.capacity_assessment.recommended_action, "Pursue Now")
+        trace = result.to_dict()["bid_fitness_trace"]
+        self.assertTrue(trace["positive_signals"])
+        self.assertTrue(trace["capacity_gates"])
+        self.assertEqual(trace["scorecard_labels"]["Core Fit"], "Strong")
+        self.assertEqual(trace["scorecard_labels"]["Recommended Action"], "Pursue Now")
+        self.assertIn("Pursue:", trace["final_rationale"])
 
     def test_overloaded_close_deadline_downgrades_strong_fit_to_review(self) -> None:
         profile = get_supported_profile("road_civil_infrastructure")
@@ -109,6 +115,11 @@ class MatcherTests(unittest.TestCase):
         self.assertEqual(result.capacity_assessment.response_capacity, "At Risk")
         self.assertEqual(result.capacity_assessment.recommended_action, "Pursue After Review")
         self.assertTrue(any("Capacity warning" in reason for reason in result.reasons))
+        trace = result.to_dict()["bid_fitness_trace"]
+        self.assertTrue(any("Pursuit Load: Overloaded" in warning for warning in trace["soft_warnings"]))
+        self.assertTrue(any("Response Capacity: At Risk" in warning for warning in trace["soft_warnings"]))
+        self.assertEqual(trace["scorecard_labels"]["Recommended Action"], "Pursue After Review")
+        self.assertIn("Capacity gate: pursue after review", trace["rules_triggered"])
 
     def test_expired_is_skip(self) -> None:
         solicitation = _solicitation(
@@ -157,6 +168,10 @@ class MatcherTests(unittest.TestCase):
         self.assertEqual(result.label, "Skip")
         self.assertIn("blocked capability mismatch", result.rejection_reasons)
         self.assertIn("major road construction", result.missing_requirements)
+        trace = result.to_dict()["bid_fitness_trace"]
+        self.assertTrue(trace["hard_blockers"])
+        self.assertTrue(any("major road construction" in blocker for blocker in trace["hard_blockers"]))
+        self.assertIn("False-positive blocker: blocked capability mismatch", trace["rules_triggered"])
 
     def test_engineering_design_rejects_construction_only_bid(self) -> None:
         solicitation = _solicitation(

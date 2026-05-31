@@ -1,11 +1,61 @@
 from __future__ import annotations
 
+import json
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime
 from typing import Any
+from urllib.parse import urlencode
+
+from contract_radar import config
 
 
 FIT_LABELS = ("Pursue", "Review", "Monitor", "Skip")
+TORONTO_BIDS_PORTAL_URL = (
+    "https://www.toronto.ca/business-economy/doing-business-with-the-city/"
+    "searching-bidding-on-city-contracts/toronto-bids-portal/"
+)
+TORONTO_BIDS_SEARCH_URL = f"{TORONTO_BIDS_PORTAL_URL}#all"
+
+
+def source_links_for_solicitation(document_number: str, raw: dict[str, Any] | None = None) -> dict[str, Any]:
+    record = raw or {}
+    document = str(document_number or "").strip()
+    is_demo_record = _is_demo_solicitation(document, record)
+    links: dict[str, Any] = {
+        "document_number": document,
+        "source_label": "City of Toronto TO Bids",
+        "toronto_bids_portal_url": TORONTO_BIDS_PORTAL_URL,
+        "toronto_bids_search_url": TORONTO_BIDS_SEARCH_URL,
+        "toronto_bids_search_hint": (
+            f"Search {document} in TO Bids" if document else "Search by document number in TO Bids"
+        ),
+        "is_demo_record": is_demo_record,
+    }
+
+    if document and not is_demo_record:
+        filters = json.dumps({"Document Number": document}, separators=(",", ":"))
+        links["open_data_record_url"] = (
+            f"{config.CKAN_DATASTORE_SEARCH_URL}?"
+            f"{urlencode({'resource_id': config.SOLICITATIONS_RESOURCE_ID, 'filters': filters})}"
+        )
+        links["verification_note"] = (
+            "Official Toronto Open Data record. Use this document number in the registered "
+            "supplier workflow to inspect the full solicitation package."
+        )
+    elif is_demo_record:
+        links["verification_note"] = (
+            "Bundled dev fixture. Normal demo scans refuse these records and use Toronto Open Data only."
+        )
+    else:
+        links["verification_note"] = "Use the buyer, title, or document number in the official supplier workflow."
+
+    return links
+
+
+def _is_demo_solicitation(document_number: str, raw: dict[str, Any]) -> bool:
+    if raw.get("Demo Profile") or raw.get("Demo Role"):
+        return True
+    return document_number.startswith(("RFQ-2026-", "RFP-2026-", "RFQ-2025-", "RFP-2025-"))
 
 
 def parse_date(value: Any) -> date | None:
@@ -197,6 +247,7 @@ class Solicitation:
         data = asdict(self)
         data["issue_date"] = self.issue_date.isoformat() if self.issue_date else None
         data["submission_deadline"] = self.submission_deadline.isoformat() if self.submission_deadline else None
+        data["source_links"] = source_links_for_solicitation(self.document_number, self.raw)
         return data
 
 
@@ -240,6 +291,7 @@ class HistoricalComparison:
     award_max: float = 0.0
     accessibility: str = "insufficient history"
     evidence: list[str] = field(default_factory=list)
+    examples: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -264,12 +316,59 @@ class RequirementExtraction:
 
 
 @dataclass
+class OpportunityBrief:
+    source: str = "deterministic_fallback"
+    owner_summary: str = ""
+    fit_reason: str = ""
+    blockers: list[str] = field(default_factory=list)
+    required_documents: list[str] = field(default_factory=list)
+    missing_items: list[str] = field(default_factory=list)
+    clarification_questions: list[str] = field(default_factory=list)
+    next_steps: list[str] = field(default_factory=list)
+    buyer_email_draft: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class MarketFitSignal:
+    source: str = "not_scored"
+    score: float = 0.0
+    confidence: str = "Unknown"
+    summary: str = ""
+    evidence: list[str] = field(default_factory=list)
+    top_factors: list[dict[str, Any]] = field(default_factory=list)
+    supplier_concentration: dict[str, Any] = field(default_factory=dict)
+    model_metrics: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
 class CapacityAssessment:
     pursuit_load: str = "Clear"
     response_capacity: str = "Enough Time"
     execution_capacity: str = "Fits Team"
     recommended_action: str = "Monitor"
     warnings: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class BidFitnessTrace:
+    hard_blockers: list[str] = field(default_factory=list)
+    soft_warnings: list[str] = field(default_factory=list)
+    positive_signals: list[str] = field(default_factory=list)
+    requirement_signals: list[str] = field(default_factory=list)
+    historical_analogs: list[str] = field(default_factory=list)
+    capacity_gates: list[str] = field(default_factory=list)
+    scorecard_labels: dict[str, str] = field(default_factory=dict)
+    rules_triggered: list[str] = field(default_factory=list)
+    final_rationale: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -287,8 +386,12 @@ class EvaluatedOpportunity:
     days_until_deadline: int | None = None
     historical: HistoricalComparison = field(default_factory=HistoricalComparison)
     requirements: RequirementExtraction = field(default_factory=RequirementExtraction)
+    opportunity_brief: OpportunityBrief = field(default_factory=OpportunityBrief)
+    market_fit: MarketFitSignal = field(default_factory=MarketFitSignal)
     capacity_assessment: CapacityAssessment = field(default_factory=CapacityAssessment)
+    bid_fitness_trace: BidFitnessTrace = field(default_factory=BidFitnessTrace)
     nemotron_summary: str = ""
+    pre_extraction_label: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
@@ -296,6 +399,14 @@ class EvaluatedOpportunity:
         data["historical"] = self.historical.to_dict()
         data["requirements"] = self.requirements.to_dict()
         data["nemotron_requirements"] = self.requirements.to_dict()
+        data["opportunity_brief"] = self.opportunity_brief.to_dict()
+        data["nemotron_brief"] = self.opportunity_brief.to_dict()
+        data["market_fit"] = self.market_fit.to_dict()
+        data["capacity_assessment"] = self.capacity_assessment.to_dict()
+        data["bid_fitness_trace"] = self.bid_fitness_trace.to_dict()
+        data["label_changed_by_extraction"] = bool(
+            self.pre_extraction_label and self.pre_extraction_label != self.label
+        )
         return data
 
 
@@ -310,7 +421,16 @@ class PipelineMetrics:
     records_per_second: float = 0.0
     shortlist_reduction_ratio: float = 0.0
     model_calls_attempted: int = 0
+    model_calls_successful: int = 0
     model_calls_avoided: int = 0
+    briefs_generated: int = 0
+    label_changes_after_extraction: int = 0
+    market_model_mode: str = "not_scored"
+    market_model_examples: int = 0
+    market_model_positive_examples: int = 0
+    market_model_precision_at_10: float = 0.0
+    market_model_top_decile_lift: float = 0.0
+    market_model_average_precision: float = 0.0
     data_sources: dict[str, str] = field(default_factory=dict)
     label_counts: dict[str, int] = field(default_factory=dict)
     engine: str = "python"
@@ -328,10 +448,13 @@ class PipelineMetrics:
 @dataclass
 class ApprovalPacket:
     approved: bool
+    owner_ready: bool
+    requires_nemotron: bool
     opportunity_id: str
     title: str
     summary: str
     checklist: list[str]
+    clarification_questions: list[str]
     buyer_contact: dict[str, str]
     draft_email: str
     sap_ariba_steps: list[str]

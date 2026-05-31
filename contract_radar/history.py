@@ -36,6 +36,8 @@ STOP_WORDS = {
     "and",
     "the",
     "for",
+    "this",
+    "that",
     "with",
     "from",
     "city",
@@ -57,6 +59,8 @@ STOP_WORDS = {
     "prospective",
     "supplier",
     "suppliers",
+    "submit",
+    "submitted",
     "labour",
     "labor",
     "materials",
@@ -71,6 +75,28 @@ STOP_WORDS = {
     "locations",
     "throughout",
     "invitation",
+    "rfq",
+    "rfp",
+    "rft",
+    "rfsq",
+    "deliverable",
+    "deliverables",
+    "specification",
+    "specifications",
+    "requirement",
+    "requirements",
+    "document",
+    "documents",
+    "part",
+    "listed",
+    "pricing",
+    "form",
+    "area",
+    "areas",
+    "posting",
+    "ariba",
+    "non-exclusive",
+    "nonexclusive",
 }
 
 
@@ -144,6 +170,9 @@ def compare_history(
     for award in awards:
         if award.award_value <= 0:
             continue
+        profile_score, _ = _profile_award_fit(profile, award)
+        if profile_score <= 0:
+            continue
         score, evidence_terms = _similarity_score(solicitation, award, solicitation_terms)
         service_evidence = [term for term in evidence_terms if term not in {"category", "solicitation type", "division"}]
         if score >= 5 and len(service_evidence) >= 2:
@@ -178,6 +207,7 @@ def compare_history(
         award_max=award_max,
         accessibility=accessibility,
         evidence=evidence,
+        examples=[_sample_award_dict(award, terms) for _, award, terms in similar[:3]],
     )
 
 

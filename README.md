@@ -10,14 +10,14 @@ The V1 demo focuses on three data-backed 2026 YTD Toronto procurement lanes that
 
 The goal is to show how a local contractor, vendor, or professional firm without a procurement team can still discover and act on realistic public revenue opportunities in the lanes where Toronto is repeatedly buying.
 
-This is not a chatbot. It is a local bid intelligence engine: deterministic filtering, historical award comparison, a visual evidence pipeline, and optional Nemotron/NIM structured extraction when a local model endpoint is available.
+This is not a chatbot. It is a local bid intelligence engine: deterministic filtering, historical award comparison, scikit-learn award-history market scoring, a visual evidence pipeline, and Nemotron/NIM structured extraction for owner-ready bid briefs when a local model endpoint is available.
 
 ## Economic Systems Judging Fit
 
 - **Insight Quality:** Small businesses often miss public contracts because of discovery friction, procurement language, deadline pressure, and capacity mismatch, not only because they lack the ability to do the work.
 - **Usability:** The owner gets plain procurement decisions: `Pursue`, `Review`, `Monitor`, or `Skip`.
-- **Creativity:** The system combines live/daily solicitations, historical awarded contracts, business capacity, local structured requirement extraction, and an approval workflow.
-- **Performance:** The pipeline scans procurement records locally first, uses RAPIDS/cuDF when available for raw-record filtering, fast-fails unavailable NIM endpoints, rejects obvious bad fits quickly, and uses Nemotron/NIM only on shortlisted candidates.
+- **Creativity:** The system combines live/daily solicitations, historical awarded contracts, local award-history ML, business capacity, local structured requirement extraction, and an approval workflow.
+- **Performance:** The pipeline scans procurement records locally first, trains/applies the award-history ranker without Nemotron, uses RAPIDS/cuDF when available for raw-record filtering, fast-fails unavailable NIM endpoints, rejects obvious bad fits quickly, and uses Nemotron/NIM only on shortlisted candidates.
 
 ## V1 Demo Flow
 
@@ -31,6 +31,12 @@ This is not a chatbot. It is a local bid intelligence engine: deterministic filt
 8. Approve the opportunity and generate a simulated bid packet.
 
 ## Spark/Local Fast Path
+
+Install the local ranker dependencies before running the app or training proof:
+
+```powershell
+python -m pip install -r requirements.txt
+```
 
 ```powershell
 python app.py
@@ -56,7 +62,7 @@ If you want to do the slow setup ahead of the demo:
 python3 app.py --nemotron-setup-only
 ```
 
-For the fastest deterministic DGX Spark/local smoke test, use the cached or fallback data path:
+For the fastest deterministic DGX Spark/local smoke test, use the cached Toronto Open Data path:
 
 ```powershell
 $env:CONTRACT_RADAR_CACHE_DIR="data/cache"
@@ -70,22 +76,57 @@ In a second terminal:
 python scripts/smoke_api.py --base-url http://127.0.0.1:8080
 ```
 
-The smoke command validates `/api/health`, `/api/scan`, `/api/simulate`, and `/api/approve` against the running app. Use `--help` to see optional flags, including `--refresh` for a live Toronto Open Data refresh when internet access is available.
+The smoke command validates `/api/health`, `/api/scan`, `/api/simulate`, and `/api/approve` against the running app. Use `--help` to see optional flags, including `--refresh` for a live Toronto Open Data refresh when internet access is available. Demo scans refuse bundled sample solicitations unless `CONTRACT_RADAR_ALLOW_SAMPLE_DATA=1` is explicitly set for local tests.
 
-To show the judging/performance proof without opening the UI:
+To show the deterministic judging/performance proof without opening the UI:
 
 ```powershell
 python scripts/benchmark_pipeline.py --offline --repeat 100
 ```
 
-The benchmark reports runtime, records/sec, shortlist reduction, model calls avoided, active NVIDIA path, false positives skipped, similar awards grounded, and the top insight scorecard sentence.
+To allow live refresh/cache behavior at larger scale, omit `--offline`:
+
+```powershell
+python scripts/benchmark_pipeline.py --repeat 10 --json
+```
+
+For judged Spark readiness, require an active NVIDIA path:
+
+```powershell
+python scripts/benchmark_pipeline.py --repeat 1 --require-nvidia
+```
+
+The benchmark reports local records processed, runtime, records/sec, shortlist reduction, model calls avoided, active NVIDIA path, false positives skipped, similar awards grounded, and the top insight scorecard sentence. `--require-nvidia` intentionally fails in fallback mode so the team does not accidentally present fallback as NVIDIA acceleration.
+
+To prove the bid engine beats naive keyword matching across all three personas:
+
+```powershell
+python scripts/evaluate_bid_engine.py --offline --profiles all
+```
+
+That evaluation reports naive keyword candidates, bid-engine actionable items, false positives skipped, shortlist reduction, top opportunity, and estimated bid-review hours saved.
+
+To train and evaluate the local bid-fit and market rankers:
+
+```powershell
+python -m pip install -r requirements.txt
+python scripts/train_bid_ranker.py --offline --profiles all
+```
+
+The scan now treats the award-history ranker as a required local capability, not a silent fallback. It trains and applies a local scikit-learn award-history market model during scan, while the training script also reports the evaluation proof. The ranker has two roles:
+
+- A guarded bid-fit ranker over current evaluated opportunities and historical fit examples.
+- A temporal award-history market model that trains on older awards, tests on recent awards, and uses supplier repeat history, market concentration, value accessibility, category/type, division, and profile-term fit signals.
+
+That gives the demo a concrete procurement-intelligence layer: not just "does this text match our profile?", but "have similar contracts historically been accessible, who tends to win them, and does the recent market look worth chasing?" Deterministic hard blockers still own `Pursue`, `Review`, `Monitor`, and `Skip`; the ranker scores and orders safe candidates.
 
 Cache behavior:
 
 - By default, the app reads Toronto Open Data cache files from `data/cache` before trying live fetches.
 - Successful live fetches write fresh cache files back to `data/cache`.
-- If live/cache data is incomplete, the app falls back to built-in deterministic sample data.
-- Set `CONTRACT_RADAR_OFFLINE=1` to force the deterministic fallback/sample data path for a stable no-internet demo.
+- If live/cache data is incomplete, the app fails loudly rather than showing fake postings.
+- Set `CONTRACT_RADAR_OFFLINE=1` to use cached Toronto Open Data without a live fetch for a stable no-internet demo.
+- `CONTRACT_RADAR_ALLOW_SAMPLE_DATA=1` unlocks bundled sample fixtures only for local tests; do not use it for demos.
 
 ## Environment Variables
 
@@ -94,6 +135,7 @@ These variables are optional for local development and demo reliability.
 ```powershell
 $env:CONTRACT_RADAR_CACHE_DIR="data/cache"
 $env:CONTRACT_RADAR_OFFLINE="0"
+$env:CONTRACT_RADAR_ALLOW_SAMPLE_DATA="0"
 $env:NIM_BASE_URL="http://localhost:8000/v1"
 $env:NIM_MODEL="nvidia/llama-3.1-nemotron-70b-instruct"
 $env:NIM_API_KEY=""
@@ -103,7 +145,8 @@ $env:CONTRACT_RADAR_NEMOTRON_HOME="$HOME/.contract-radar/nemotron"
 ```
 
 - `CONTRACT_RADAR_CACHE_DIR`: directory for cached Toronto Open Data responses.
-- `CONTRACT_RADAR_OFFLINE`: set to `1` to force fallback/sample data for a stable demo.
+- `CONTRACT_RADAR_OFFLINE`: set to `1` to use cached Toronto Open Data without a live fetch for a stable demo.
+- `CONTRACT_RADAR_ALLOW_SAMPLE_DATA`: set to `1` only for local tests that intentionally exercise bundled fixtures. Keep unset or `0` for demos.
 - `NIM_BASE_URL`: local NVIDIA NIM/OpenAI-compatible endpoint used for structured requirement extraction on shortlisted contracts.
 - `NIM_MODEL`: local Nemotron model identifier served by NIM.
 - `NIM_API_KEY`: optional key if the local NIM endpoint requires one.
@@ -111,7 +154,7 @@ $env:CONTRACT_RADAR_NEMOTRON_HOME="$HOME/.contract-radar/nemotron"
 - `CONTRACT_RADAR_NEMOTRON_PORT`: port used by `python3 app.py --with-nemotron`.
 - `CONTRACT_RADAR_NEMOTRON_HOME`: local directory for the managed llama.cpp build, Hugging Face CLI venv, model file, and server log.
 
-NIM/Nemotron is optional for local reliability but should be active during the judged Spark run if RAPIDS is not the active NVIDIA path. When `NIM_BASE_URL` is reachable, the app asks a local Nemotron model for structured fields such as requirements, credentials, scope clues, deadlines, and concise evidence wording for already-shortlisted opportunities. Nemotron does **not** make the final `Pursue`, `Review`, `Monitor`, or `Skip` decision. If the endpoint is missing, offline, or returns an unusable response, the app fast-fails to deterministic extraction, ranking, evidence, and fallback summary wording.
+NIM/Nemotron is no longer just a nice-to-have in the owner workflow. The app can still rank opportunities deterministically when local NIM is unavailable, but owner-ready packet drafting is blocked until Nemotron generates a validated bid brief. When `NIM_BASE_URL` is reachable, the app asks a local Nemotron model for structured fields, blockers, required documents, clarification questions, next steps, and grounded buyer-email wording for already-shortlisted opportunities. Nemotron does **not** make the final `Pursue`, `Review`, `Monitor`, or `Skip` decision; validated blockers can downgrade a `Pursue` recommendation to `Review` through the bid-fitness policy.
 
 ## DGX Spark / NVIDIA Story
 

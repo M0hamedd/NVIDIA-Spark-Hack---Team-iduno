@@ -88,7 +88,7 @@ Click:
 
 Judge emphasis:
 
-> Nemotron helps turn dense contract language into structured requirements, but the deterministic bid engine owns the final Pursue, Review, Monitor, or Skip decision.
+> Nemotron turns dense contract language into a usable owner brief: requirements, blockers, required documents, clarification questions, next steps, and draft outreach. The deterministic bid engine still owns the final Pursue, Review, Monitor, or Skip decision, but validated Nemotron blockers can downgrade a Pursue into Review.
 
 ## 3:05-3:45 - Judge Evidence View
 
@@ -118,7 +118,11 @@ Click:
 
 20-second scoreboard beat:
 
-> The important scoring proof is here: the system turned N raw records into K shortlisted contracts before Nemotron, avoided unnecessary model calls, skipped misleading false positives, grounded this decision in similar awards, and kept the business profile local on DGX Spark. If RAPIDS or local NIM is active, the active NVIDIA path is shown here; if not, the fallback reason is explicit.
+> The important scoring proof is here: the system turned N raw records into K shortlisted contracts before Nemotron, avoided unnecessary model calls, skipped misleading false positives, grounded this decision in similar awards, and kept the business profile local on DGX Spark. The Bid Fitness Trace shows the hard blockers, soft warnings, rules triggered, capacity gates, and final rationale. If RAPIDS or local NIM is active, the active NVIDIA path is shown here; if not, the fallback reason is explicit.
+
+Optional baseline proof line:
+
+> We also compare this against naive keyword search. On the offline demo set, naive matching surfaces 8 to 9 candidates per persona, while the bid engine cuts that down to 2 to 3 actionable items and skips the misleading lookalikes.
 
 Judge emphasis:
 
@@ -128,7 +132,7 @@ Judge emphasis:
 
 Narration:
 
-> The agent does not submit anything on its own. The owner approves first. After approval, it prepares the packet: plain-English summary, checklist, missing requirements, SAP Ariba next steps, and a draft buyer email.
+> The agent does not submit anything on its own. The owner approves first. After approval, local Nemotron prepares the owner-ready packet: plain-English summary, checklist, missing requirements, clarification questions, SAP Ariba next steps, and a draft buyer email.
 
 Click:
 
@@ -158,13 +162,15 @@ Start the app:
 python app.py
 ```
 
-For a stable no-internet demo:
+For a stable no-internet demo with real cached Toronto Open Data:
 
 ```powershell
 $env:CONTRACT_RADAR_CACHE_DIR="data/cache"
 $env:CONTRACT_RADAR_OFFLINE="1"
 python app.py
 ```
+
+Do not set `CONTRACT_RADAR_ALLOW_SAMPLE_DATA` during the demo. If cache/live data is unavailable, the app should fail rather than showing bundled fixture postings.
 
 In a second terminal, verify the API:
 
@@ -178,7 +184,32 @@ Run the benchmark proof:
 python scripts/benchmark_pipeline.py --offline --repeat 100
 ```
 
-The smoke test checks `/api/health`, `/api/scan`, `/api/simulate`, and `/api/approve`. The benchmark reports runtime, records/sec, shortlist reduction, model calls avoided, NVIDIA mode, false positives skipped, similar awards grounded, and the top insight sentence. Nemotron/NIM is optional for reliability; the judged Spark demo should show either active local NIM or active RAPIDS/cuDF. When available, Nemotron extracts requirements from shortlisted contracts; the deterministic bid engine owns `Pursue`, `Review`, `Monitor`, and `Skip`.
+Run the cached-record scale proof:
+
+```powershell
+python scripts/benchmark_pipeline.py --repeat 10 --json
+```
+
+Run the naive-baseline proof:
+
+```powershell
+python scripts/evaluate_bid_engine.py --offline --profiles all
+```
+
+Run the local ranker proof:
+
+```powershell
+python -m pip install -r requirements.txt
+python scripts/train_bid_ranker.py --offline --profiles all
+```
+
+Run the judged Spark readiness gate:
+
+```powershell
+python scripts/benchmark_pipeline.py --repeat 1 --require-nvidia
+```
+
+The smoke test checks `/api/health`, `/api/scan`, `/api/simulate`, and `/api/approve`. The benchmark reports local records processed, runtime, records/sec, shortlist reduction, model calls avoided, owner briefs generated, NVIDIA mode, false positives skipped, similar awards grounded, market-model examples, precision@10, top-decile lift, and the top insight sentence. The baseline proof reports how many naive keyword candidates were removed by the bid engine. The ranker proof trains two local scikit-learn models: a guarded bid-fit ranker over current/historical structured features and a temporal award-history market model that trains on older awards, tests on recent awards, and reports precision@10, top-decile lift, supplier concentration, false-positive pressure, and top feature weights. Nemotron/NIM is optional for deterministic ranking reliability, but owner-ready packet drafting requires active local NIM. `--require-nvidia` intentionally fails if neither NVIDIA path is active. When available, Nemotron extracts requirements and bid briefs from shortlisted contracts; the deterministic bid engine owns `Pursue`, `Review`, `Monitor`, and `Skip`, while the market model scores and orders safe candidates.
 
 ## Future Source Expansion
 

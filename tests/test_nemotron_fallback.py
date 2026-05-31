@@ -54,6 +54,10 @@ class NemotronFallbackTests(unittest.TestCase):
         self.assertIn("road repairs", enriched[0].requirements.services)
         self.assertIn("traffic staging", enriched[0].requirements.services)
         self.assertEqual(enriched[0].requirements.deadline_risk, "Manageable")
+        self.assertIn("This is road repairs, sidewalk repairs, and traffic staging work", enriched[0].requirements.summary)
+        self.assertEqual(enriched[0].opportunity_brief.source, "deterministic_fallback")
+        self.assertIn("official Toronto bidding portal", " ".join(enriched[0].opportunity_brief.next_steps))
+        self.assertNotIn("Road repairs, sidewalk repairs, curb repair, asphalt paving", enriched[0].nemotron_summary)
         self.assertIn("Harbourfront Civil Works Ltd.", enriched[0].nemotron_summary)
         self.assertIn("Historical signal", enriched[0].nemotron_summary)
 
@@ -64,12 +68,22 @@ class NemotronFallbackTests(unittest.TestCase):
             "certifications": ["bonding capacity"],
             "documents": ["insurance", "WSIB"],
             "facility_signals": ["municipal road corridor"],
-            "risk_flags": ["traffic staging review"],
-            "capacity_flags": ["multi-site scheduling review"],
+            "risk_flags": [],
+            "capacity_flags": [],
             "procurement_type": "RFT",
             "deadline_risk": "Manageable",
             "next_action": "Prepare owner review package.",
             "summary": "Road and sidewalk repair work for municipal corridors.",
+            "owner_brief": {
+                "owner_summary": "Owner-ready road repair brief.",
+                "fit_reason": "The profile has matching road repair capacity.",
+                "blockers": [],
+                "required_documents": ["insurance", "WSIB"],
+                "missing_items": [],
+                "clarification_questions": ["Confirm traffic staging requirements."],
+                "next_steps": ["Prepare owner review package."],
+                "buyer_email_draft": "Subject: Clarification for RFQ-123\n\nHello City Buyer,\n\nCan you confirm traffic staging requirements?\n\nThank you,\nHarbourfront Civil Works Ltd.",
+            },
         }
 
         with patch("contract_radar.nemotron._nim_preflight", return_value={"available": True, "reason": "test"}):
@@ -78,8 +92,47 @@ class NemotronFallbackTests(unittest.TestCase):
 
         self.assertEqual(mode, "local_nim")
         self.assertEqual(enriched[0].requirements.source, "local_nim")
+        self.assertEqual(enriched[0].opportunity_brief.source, "local_nim")
+        self.assertEqual(enriched[0].label, "Pursue")
         self.assertIn("traffic staging", enriched[0].requirements.services)
         self.assertEqual(enriched[0].requirements.next_action, "Prepare owner review package.")
+        self.assertIn("Owner-ready road repair brief", enriched[0].opportunity_brief.owner_summary)
+
+    def test_local_nim_blocker_downgrades_pursue_to_review(self) -> None:
+        profile = BusinessProfile()
+        response = {
+            "services": ["road repairs", "traffic staging"],
+            "certifications": ["bonding capacity"],
+            "documents": ["insurance", "WSIB"],
+            "facility_signals": ["municipal road corridor"],
+            "risk_flags": ["bonding must be confirmed"],
+            "capacity_flags": ["multi-site scheduling review"],
+            "procurement_type": "RFT",
+            "deadline_risk": "Manageable",
+            "next_action": "Confirm bonding before pursuit.",
+            "summary": "Road and sidewalk repair work for municipal corridors.",
+            "owner_brief": {
+                "owner_summary": "Road repair brief with a bonding blocker.",
+                "fit_reason": "The profile has matching road repair capacity.",
+                "blockers": ["bonding must be confirmed"],
+                "required_documents": ["insurance", "WSIB", "bonding"],
+                "missing_items": ["confirmed bonding capacity"],
+                "clarification_questions": ["Is a bid bond mandatory?"],
+                "next_steps": ["Confirm bonding capacity."],
+                "buyer_email_draft": "Subject: Clarification for RFQ-123\n\nHello City Buyer,\n\nIs a bid bond mandatory?\n\nThank you,\nHarbourfront Civil Works Ltd.",
+            },
+        }
+
+        with patch("contract_radar.nemotron._nim_preflight", return_value={"available": True, "reason": "test"}):
+            with patch("contract_radar.nemotron._chat_completion", return_value=__import__("json").dumps(response)):
+                enriched, mode = enrich_top_opportunities(profile, [_opportunity()])
+
+        self.assertEqual(mode, "local_nim")
+        self.assertEqual(enriched[0].pre_extraction_label, "Pursue")
+        self.assertEqual(enriched[0].label, "Review")
+        self.assertTrue(enriched[0].to_dict()["label_changed_by_extraction"])
+        self.assertIn("confirmed bonding capacity", enriched[0].missing_requirements)
+        self.assertIn("Nemotron extraction reconciliation rule", enriched[0].bid_fitness_trace.rules_triggered)
 
     def test_to_dict_exposes_requirements_for_frontend(self) -> None:
         opportunity = _opportunity()
@@ -94,6 +147,8 @@ class NemotronFallbackTests(unittest.TestCase):
 
         self.assertIn("requirements", payload)
         self.assertIn("nemotron_requirements", payload)
+        self.assertIn("opportunity_brief", payload)
+        self.assertIn("nemotron_brief", payload)
         self.assertIn("capacity_assessment", payload)
         self.assertEqual(payload["requirements"]["services"], ["road repairs"])
         self.assertEqual(payload["capacity_assessment"]["pursuit_load"], "Clear")

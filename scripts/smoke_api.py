@@ -40,6 +40,7 @@ def main() -> int:
         require(scan.get("business_profile"), "/api/scan missing business_profile")
         require(scan.get("metrics"), "/api/scan missing metrics")
         require(isinstance(scan.get("all_evaluated"), list), "/api/scan missing all_evaluated list")
+        require_real_toronto_sources(scan)
         ok("POST /api/scan", _scan_summary(scan))
 
         simulate_payload = dict(scan_payload)
@@ -124,6 +125,27 @@ class SmokeClient:
 def require(condition: bool, message: str) -> None:
     if not condition:
         raise SmokeFailure(message)
+
+
+def require_real_toronto_sources(scan: dict[str, Any]) -> None:
+    metrics = scan.get("metrics") or {}
+    data_sources = metrics.get("data_sources") or {}
+    joined_sources = " ".join(str(value) for value in data_sources.values())
+    require("dev_sample_only" not in joined_sources, "/api/scan used bundled dev sample data")
+    for bucket in ("top_opportunities", "watchlist", "skipped", "all_evaluated"):
+        for item in scan.get(bucket) or []:
+            solicitation = item.get("solicitation") or {}
+            source_links = solicitation.get("source_links") or {}
+            document_number = str(solicitation.get("document_number") or "").strip()
+            require(document_number, f"{bucket} item missing document number")
+            require(
+                source_links.get("is_demo_record") is False,
+                f"{bucket} item {document_number} is a bundled demo fixture",
+            )
+            require(
+                bool(source_links.get("open_data_record_url")),
+                f"{bucket} item {document_number} missing Toronto Open Data verification link",
+            )
 
 
 def ok(step: str, detail: str) -> None:

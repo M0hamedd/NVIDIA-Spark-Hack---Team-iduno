@@ -10,7 +10,7 @@ from typing import Any
 from urllib import error, request
 from urllib.parse import urlparse
 
-from contract_radar.models import BusinessProfile, EvaluatedOpportunity, RequirementExtraction
+from contract_radar.models import BusinessProfile, EvaluatedOpportunity, OpportunityBrief, RequirementExtraction
 
 
 DEFAULT_BASE_URL = "http://localhost:8000/v1"
@@ -33,6 +33,30 @@ REQUIREMENT_SCHEMA: dict[str, Any] = {
         "deadline_risk": {"type": "string"},
         "next_action": {"type": "string"},
         "summary": {"type": "string"},
+        "owner_brief": {
+            "type": "object",
+            "properties": {
+                "owner_summary": {"type": "string"},
+                "fit_reason": {"type": "string"},
+                "blockers": {"type": "array", "items": {"type": "string"}},
+                "required_documents": {"type": "array", "items": {"type": "string"}},
+                "missing_items": {"type": "array", "items": {"type": "string"}},
+                "clarification_questions": {"type": "array", "items": {"type": "string"}},
+                "next_steps": {"type": "array", "items": {"type": "string"}},
+                "buyer_email_draft": {"type": "string"},
+            },
+            "required": [
+                "owner_summary",
+                "fit_reason",
+                "blockers",
+                "required_documents",
+                "missing_items",
+                "clarification_questions",
+                "next_steps",
+                "buyer_email_draft",
+            ],
+            "additionalProperties": False,
+        },
     },
     "required": [
         "services",
@@ -45,6 +69,7 @@ REQUIREMENT_SCHEMA: dict[str, Any] = {
         "deadline_risk",
         "next_action",
         "summary",
+        "owner_brief",
     ],
     "additionalProperties": False,
 }
@@ -123,9 +148,10 @@ def nemotron_status() -> dict[str, Any]:
         "top_candidate_limit": TOP_CANDIDATE_LIMIT,
         "story": (
             "Nemotron is used after deterministic filtering to extract structured procurement "
-            "requirements from shortlisted contracts. The bid-fitness engine keeps ownership "
-            "of Pursue/Review/Monitor/Skip decisions. If local NIM is offline, the app falls "
-            "back to deterministic extraction and summaries."
+            "requirements and owner-ready bid briefs from shortlisted contracts. The bid-fitness "
+            "engine keeps ownership of Pursue/Review/Monitor/Skip decisions, but validated "
+            "Nemotron blockers can downgrade a candidate for owner review. If local NIM is "
+            "offline, the app can still rank contracts, but owner-ready packet drafting is blocked."
         ),
     }
 
@@ -160,8 +186,12 @@ def _enrich_top_opportunities(
     stats["nim_preflight"] = availability
     if not availability["available"]:
         stats["model_calls_avoided_by_preflight"] = top_count
+        fallback = _fallback_enrich(profile, opportunities)
+        stats["briefs_generated"] = sum(
+            1 for item in fallback if item.opportunity_brief.owner_summary
+        )
         return _with_optional_stats(
-            _fallback_enrich(profile, opportunities),
+            fallback,
             "deterministic_fallback",
             stats,
             return_stats,
@@ -172,19 +202,32 @@ def _enrich_top_opportunities(
 
     for index, opportunity in enumerate(opportunities):
         if index >= top_count:
-            enriched.append(_with_fallback_requirements(profile, opportunity))
+            fallback_item = _with_fallback_requirements(profile, opportunity)
+            stats["briefs_generated"] += int(bool(fallback_item.opportunity_brief.owner_summary))
+            enriched.append(fallback_item)
             continue
         try:
             stats["model_calls_attempted"] += 1
-            extraction = _extract_with_nim(profile, opportunity)
-            enriched.append(_with_extraction(profile, opportunity, extraction))
+            extraction, brief = _extract_with_nim(profile, opportunity)
+            enriched_item = _with_extraction(profile, opportunity, extraction, brief)
+            stats["model_calls_successful"] += 1
+            stats["briefs_generated"] += int(bool(enriched_item.opportunity_brief.owner_summary))
+            stats["label_changes_after_extraction"] += int(
+                bool(enriched_item.pre_extraction_label)
+                and enriched_item.pre_extraction_label != enriched_item.label
+            )
+            enriched.append(enriched_item)
         except Exception:
             mode = "deterministic_fallback"
             _open_nim_circuit()
             stats["model_calls_failed"] += 1
             stats["model_calls_avoided_by_failure"] = top_count - stats["model_calls_attempted"]
+            fallback = _fallback_enrich(profile, opportunities)
+            stats["briefs_generated"] += sum(
+                1 for item in fallback if item.opportunity_brief.owner_summary
+            )
             return _with_optional_stats(
-                _fallback_enrich(profile, opportunities),
+                fallback,
                 mode,
                 stats,
                 return_stats,
@@ -193,14 +236,17 @@ def _enrich_top_opportunities(
     return _with_optional_stats(enriched, mode, stats, return_stats)
 
 
-def _extract_with_nim(profile: BusinessProfile, opportunity: EvaluatedOpportunity) -> RequirementExtraction:
+def _extract_with_nim(
+    profile: BusinessProfile,
+    opportunity: EvaluatedOpportunity,
+) -> tuple[RequirementExtraction, OpportunityBrief]:
     prompt = _structured_prompt(profile, opportunity)
     try:
         content = _chat_completion(prompt, with_schema=True)
     except RuntimeError:
         content = _chat_completion(prompt, with_schema=False)
     payload = _extract_json_object(content)
-    return _validate_extraction(payload, source="local_nim")
+    return _validate_extraction(payload, source="local_nim"), _validate_brief(payload, source="local_nim")
 
 
 def _chat_completion(prompt: str, with_schema: bool) -> str:
@@ -211,14 +257,15 @@ def _chat_completion(prompt: str, with_schema: bool) -> str:
                 "role": "system",
                 "content": (
                     "You extract procurement requirements for a local bid intelligence system. "
-                    "Use only the supplied evidence. Return JSON only. Do not decide whether "
-                    "the business should bid."
+                    "Use only the supplied evidence. Return JSON only. Do not make the final "
+                    "bid/no-bid decision; extract facts, risks, questions, and owner-ready draft "
+                    "language grounded in the supplied evidence."
                 ),
             },
             {"role": "user", "content": prompt},
         ],
         "temperature": 0,
-        "max_tokens": 650,
+        "max_tokens": 1100,
     }
     if with_schema:
         payload["response_format"] = {
@@ -267,11 +314,15 @@ def _with_extraction(
     profile: BusinessProfile,
     opportunity: EvaluatedOpportunity,
     extraction: RequirementExtraction,
+    brief: OpportunityBrief,
 ) -> EvaluatedOpportunity:
+    reconciled = _reconcile_extraction(profile, opportunity, extraction, brief)
     return replace(
-        opportunity,
+        reconciled,
+        pre_extraction_label=opportunity.label,
         requirements=extraction,
-        nemotron_summary=_summary_from_requirements(profile, opportunity, extraction),
+        opportunity_brief=brief,
+        nemotron_summary=_summary_from_requirements(profile, reconciled, extraction),
     )
 
 
@@ -280,7 +331,8 @@ def _with_fallback_requirements(
     opportunity: EvaluatedOpportunity,
 ) -> EvaluatedOpportunity:
     extraction = _fallback_extraction(profile, opportunity)
-    return _with_extraction(profile, opportunity, extraction)
+    brief = _fallback_brief(profile, opportunity, extraction)
+    return _with_extraction(profile, opportunity, extraction, brief)
 
 
 def _fallback_extraction(profile: BusinessProfile, opportunity: EvaluatedOpportunity) -> RequirementExtraction:
@@ -295,7 +347,8 @@ def _fallback_extraction(profile: BusinessProfile, opportunity: EvaluatedOpportu
     deadline_risk = _deadline_risk(opportunity.days_until_deadline)
     next_action = _next_action(opportunity, risk_flags, capacity_flags)
     procurement_type = solicitation.solicitation_type or "Solicitation"
-    summary = _compact_summary(services, risk_flags, capacity_flags, deadline_risk)
+    summary_services = list(opportunity.matched_terms[:3]) or services
+    summary = _compact_summary(solicitation, summary_services, risk_flags, capacity_flags, deadline_risk)
     return RequirementExtraction(
         source="deterministic_fallback",
         services=services,
@@ -308,6 +361,208 @@ def _fallback_extraction(profile: BusinessProfile, opportunity: EvaluatedOpportu
         deadline_risk=deadline_risk,
         next_action=next_action,
         summary=summary,
+    )
+
+
+def _fallback_brief(
+    profile: BusinessProfile,
+    opportunity: EvaluatedOpportunity,
+    extraction: RequirementExtraction,
+) -> OpportunityBrief:
+    source = extraction.source
+    missing = _unique_strings(opportunity.missing_requirements + extraction.capacity_flags)
+    required_documents = _unique_strings(extraction.documents or profile.ready_documents[:4])
+    blockers = _unique_strings(opportunity.rejection_reasons + extraction.risk_flags)
+    questions = _fallback_questions(opportunity, extraction)
+    next_steps = _fallback_next_steps(opportunity, extraction, missing)
+    owner_summary = extraction.summary or _compact_summary(
+        opportunity.solicitation,
+        extraction.services or opportunity.matched_terms,
+        extraction.risk_flags,
+        extraction.capacity_flags,
+        extraction.deadline_risk,
+    )
+    fit_reason = _fit_reason(profile, opportunity, extraction)
+    return OpportunityBrief(
+        source=source,
+        owner_summary=owner_summary,
+        fit_reason=fit_reason,
+        blockers=blockers,
+        required_documents=required_documents,
+        missing_items=missing,
+        clarification_questions=questions,
+        next_steps=next_steps,
+        buyer_email_draft=_fallback_email_draft(profile, opportunity, extraction, owner_ready=False),
+    )
+
+
+def _reconcile_extraction(
+    profile: BusinessProfile,
+    opportunity: EvaluatedOpportunity,
+    extraction: RequirementExtraction,
+    brief: OpportunityBrief,
+) -> EvaluatedOpportunity:
+    requirement_signals = _brief_requirement_signals(extraction, brief)
+    if extraction.source != "local_nim":
+        return _with_trace_enrichment(opportunity, requirement_signals, [], [], "deterministic extraction")
+
+    missing = _unique_strings(opportunity.missing_requirements + brief.missing_items)
+    review_risks = _unique_strings(brief.blockers + extraction.risk_flags + extraction.capacity_flags)
+    label = opportunity.label
+    reasons = list(opportunity.reasons)
+    rejection_reasons = list(opportunity.rejection_reasons)
+    soft_warnings: list[str] = []
+    rules = ["Nemotron extraction reconciliation rule"]
+
+    if label == "Pursue" and review_risks:
+        label = "Review"
+        warning = f"Nemotron extracted owner-review risk: {review_risks[0]}."
+        soft_warnings.append(warning)
+        reasons.append("Nemotron extracted a risk that requires owner review before pursuit.")
+    if label != "Skip" and missing:
+        soft_warnings.append(f"Nemotron missing-item review: {', '.join(missing[:3])}.")
+        reasons.append("Nemotron extracted missing packet items for owner confirmation.")
+    if label != "Skip" and _requires_owner_review(profile, review_risks):
+        label = "Review"
+        rejection_reasons.append("nemotron blocker requires owner review")
+
+    capacity_assessment = opportunity.capacity_assessment
+    if label == "Review" and opportunity.label == "Pursue":
+        capacity_assessment = replace(
+            capacity_assessment,
+            recommended_action="Pursue After Review",
+            warnings=_unique_strings(
+                capacity_assessment.warnings
+                + ["Nemotron brief found risks or missing items that require owner review."]
+            ),
+        )
+
+    reconciled = replace(
+        opportunity,
+        label=label,
+        missing_requirements=missing,
+        rejection_reasons=sorted(set(rejection_reasons)),
+        reasons=_unique_strings(reasons),
+        capacity_assessment=capacity_assessment,
+    )
+    return _with_trace_enrichment(reconciled, requirement_signals, soft_warnings, rules, "local Nemotron")
+
+
+def _with_trace_enrichment(
+    opportunity: EvaluatedOpportunity,
+    requirement_signals: list[str],
+    soft_warnings: list[str],
+    rules: list[str],
+    source_label: str,
+) -> EvaluatedOpportunity:
+    trace = opportunity.bid_fitness_trace
+    final_rationale = trace.final_rationale
+    if soft_warnings and opportunity.label == "Review":
+        final_rationale = f"Review: {soft_warnings[0].rstrip('.')}. Final decision still follows the bid-fitness policy."
+    elif requirement_signals and not final_rationale:
+        final_rationale = f"{opportunity.label}: extracted requirements came from {source_label}."
+    updated_trace = replace(
+        trace,
+        soft_warnings=_unique_strings(trace.soft_warnings + soft_warnings),
+        requirement_signals=_unique_strings(trace.requirement_signals + requirement_signals),
+        rules_triggered=_unique_strings(trace.rules_triggered + rules),
+        final_rationale=final_rationale,
+    )
+    return replace(opportunity, bid_fitness_trace=updated_trace)
+
+
+def _requires_owner_review(profile: BusinessProfile, risks: list[str]) -> bool:
+    lowered = " ".join(risks).lower()
+    if not lowered:
+        return False
+    review_terms = ("mandatory", "not eligible", "bond", "insurance", "wsib", "license", "capacity")
+    profile_exclusions = [item.lower() for item in profile.missing_capabilities]
+    return any(term in lowered for term in review_terms) or any(
+        item and item in lowered for item in profile_exclusions
+    )
+
+
+def _brief_requirement_signals(
+    extraction: RequirementExtraction,
+    brief: OpportunityBrief,
+) -> list[str]:
+    signals: list[str] = []
+    for label, values in (
+        ("Extracted services", extraction.services),
+        ("Required documents", brief.required_documents or extraction.documents),
+        ("Clarification questions", brief.clarification_questions),
+        ("Brief next steps", brief.next_steps),
+    ):
+        cleaned = _unique_strings(values)
+        if cleaned:
+            signals.append(f"{label}: {', '.join(cleaned[:4])}.")
+    if brief.fit_reason:
+        signals.append(f"Owner fit reason: {brief.fit_reason}.")
+    return _unique_strings(signals)
+
+
+def _fallback_questions(
+    opportunity: EvaluatedOpportunity,
+    extraction: RequirementExtraction,
+) -> list[str]:
+    questions = []
+    if not extraction.documents:
+        questions.append("Which insurance, WSIB, bonding, and portal forms are mandatory for this solicitation?")
+    if extraction.deadline_risk in {"Tight", "Critical", "Unknown"}:
+        questions.append("Are there addenda, mandatory meetings, or deadline details the vendor should confirm?")
+    if extraction.risk_flags or extraction.capacity_flags:
+        questions.append("Can the buyer clarify scope, site count, and any capacity-sensitive delivery requirements?")
+    return questions[:3]
+
+
+def _fallback_next_steps(
+    opportunity: EvaluatedOpportunity,
+    extraction: RequirementExtraction,
+    missing: list[str],
+) -> list[str]:
+    steps = [
+        "Open the official Toronto bidding portal record and confirm the full solicitation package.",
+        extraction.next_action or _next_action(opportunity, extraction.risk_flags, extraction.capacity_flags),
+    ]
+    if missing:
+        steps.append("Resolve missing or uncertain packet items: " + ", ".join(missing[:4]) + ".")
+    else:
+        steps.append("Confirm ready documents against the official package before owner approval.")
+    return _unique_strings(steps)
+
+
+def _fit_reason(
+    profile: BusinessProfile,
+    opportunity: EvaluatedOpportunity,
+    extraction: RequirementExtraction,
+) -> str:
+    services = extraction.services or opportunity.matched_terms
+    if services:
+        return f"{profile.name} has matching capability signals for {_human_join(services[:3])}."
+    return f"{profile.name} matches this opportunity through the selected {profile.label} profile."
+
+
+def _fallback_email_draft(
+    profile: BusinessProfile,
+    opportunity: EvaluatedOpportunity,
+    extraction: RequirementExtraction,
+    owner_ready: bool,
+) -> str:
+    buyer_name = opportunity.solicitation.buyer_name or "Procurement Team"
+    document_number = opportunity.solicitation.document_number or "the solicitation"
+    if not owner_ready:
+        return (
+            "Owner-ready buyer email requires a local Nemotron brief. Start local NIM/Nemotron, "
+            "rerun the scan, and approve again to generate grounded outreach text."
+        )
+    services = _human_join((extraction.services or opportunity.matched_terms)[:4]) or profile.business_type
+    return (
+        f"Subject: Clarification for {document_number}\n\n"
+        f"Hello {buyer_name},\n\n"
+        f"{profile.name} is reviewing {document_number}. We provide {services} in Toronto and "
+        "would like to confirm any mandatory documents, addenda, or site requirements before "
+        "finalizing our response.\n\n"
+        f"Thank you,\n{profile.name}"
     )
 
 
@@ -359,7 +614,23 @@ def _structured_prompt(profile: BusinessProfile, opportunity: EvaluatedOpportuni
                 "procurement_type": "RFQ, RFP, RFSQ, Tender, or the listed solicitation type",
                 "deadline_risk": "Manageable, Tight, Critical, or Unknown",
                 "next_action": "short next action for the owner",
-                "summary": "one concise evidence-only sentence",
+                "summary": (
+                    "one plain-English sentence describing the work for an owner; avoid copying "
+                    "the solicitation description, avoid sales language, and use only supplied evidence"
+                ),
+                "owner_brief": {
+                    "owner_summary": "one or two owner-facing sentences explaining the opportunity",
+                    "fit_reason": "why this profile could realistically consider the opportunity",
+                    "blockers": "explicit blockers or risks the owner must resolve before pursuing",
+                    "required_documents": "documents likely needed for the packet",
+                    "missing_items": "items the profile may not currently have ready",
+                    "clarification_questions": "buyer questions grounded in ambiguity from the solicitation",
+                    "next_steps": "concrete owner workflow steps before submission",
+                    "buyer_email_draft": (
+                        "short professional email draft to the listed buyer; do not claim submission, "
+                        "approval, or qualifications not supplied"
+                    ),
+                },
             },
         }
     )
@@ -378,6 +649,27 @@ def _validate_extraction(payload: dict[str, Any], source: str) -> RequirementExt
         deadline_risk=_normal_deadline_risk(payload.get("deadline_risk")),
         next_action=_short_text(payload.get("next_action"), limit=160),
         summary=_short_text(payload.get("summary"), limit=240),
+    )
+
+
+def _validate_brief(payload: dict[str, Any], source: str) -> OpportunityBrief:
+    raw_brief = payload.get("owner_brief") if isinstance(payload.get("owner_brief"), dict) else {}
+    required_documents = _string_list(raw_brief.get("required_documents"))
+    if not required_documents:
+        required_documents = _string_list(payload.get("documents"))
+    owner_summary = _short_text(raw_brief.get("owner_summary"), limit=300)
+    if not owner_summary:
+        owner_summary = _short_text(payload.get("summary"), limit=300)
+    return OpportunityBrief(
+        source=source,
+        owner_summary=owner_summary,
+        fit_reason=_short_text(raw_brief.get("fit_reason"), limit=240),
+        blockers=_string_list(raw_brief.get("blockers")),
+        required_documents=required_documents,
+        missing_items=_string_list(raw_brief.get("missing_items")),
+        clarification_questions=_string_list(raw_brief.get("clarification_questions"), limit=5),
+        next_steps=_string_list(raw_brief.get("next_steps"), limit=5),
+        buyer_email_draft=_short_text(raw_brief.get("buyer_email_draft"), limit=900),
     )
 
 
@@ -410,10 +702,31 @@ def _summary_from_requirements(
     else:
         award_signal = "insufficient similar award history"
     next_action = extraction.next_action or _next_action(opportunity, extraction.risk_flags, extraction.capacity_flags)
+    plain_summary = _plain_owner_summary(opportunity, extraction)
     return (
-        f"{opportunity.label}: {opportunity.solicitation.description or opportunity.solicitation.document_number}. "
+        f"{opportunity.label}: {plain_summary} "
         f"For {profile.name}, extracted services are {services}. "
         f"Risks: {risks}. Historical signal: {award_signal}. Next action: {next_action}."
+    )
+
+
+def _plain_owner_summary(
+    opportunity: EvaluatedOpportunity,
+    extraction: RequirementExtraction,
+) -> str:
+    candidate = str(extraction.summary or "").strip()
+    official = str(opportunity.solicitation.description or "").strip()
+    if candidate:
+        candidate_key = candidate.lower()
+        official_key = official.lower()
+        if not official_key or (candidate_key != official_key and official_key not in candidate_key):
+            return candidate
+    return _compact_summary(
+        opportunity.solicitation,
+        extraction.services or opportunity.matched_terms,
+        extraction.risk_flags,
+        extraction.capacity_flags,
+        extraction.deadline_risk or _deadline_risk(opportunity.days_until_deadline),
     )
 
 
@@ -472,14 +785,40 @@ def _next_action(
 
 
 def _compact_summary(
+    solicitation: Any,
     services: list[str],
     risk_flags: list[str],
     capacity_flags: list[str],
     deadline_risk: str,
 ) -> str:
-    service_text = _join_or_default(services, "no explicit service requirement")
-    risk_text = _join_or_default(risk_flags + capacity_flags, "no major risk")
-    return f"Services: {service_text}. Risks: {risk_text}. Deadline risk: {deadline_risk}."
+    service_text = _human_join(services[:3]) if services else ""
+    if service_text:
+        scope = f"{service_text} work"
+    else:
+        category = str(getattr(solicitation, "category", "") or "").strip().lower()
+        scope = f"{category} work" if category else "City procurement work"
+    division = str(getattr(solicitation, "division", "") or "").strip()
+    buyer_text = f" for {division}" if division else ""
+    risks = risk_flags + capacity_flags
+    risk_text = _human_join(risks[:2]) if risks else "no major blocker surfaced"
+    deadline_text = {
+        "Critical": "the response window looks critical",
+        "Tight": "the response window looks tight",
+        "Manageable": "the response window looks manageable",
+        "Unknown": "the deadline needs confirmation",
+    }.get(deadline_risk, "the deadline needs confirmation")
+    return f"This is {scope}{buyer_text}; {risk_text}; {deadline_text}."
+
+
+def _human_join(items: list[str]) -> str:
+    cleaned = [str(item).strip() for item in items if str(item).strip()]
+    if not cleaned:
+        return ""
+    if len(cleaned) == 1:
+        return cleaned[0]
+    if len(cleaned) == 2:
+        return f"{cleaned[0]} and {cleaned[1]}"
+    return f"{', '.join(cleaned[:-1])}, and {cleaned[-1]}"
 
 
 def _solicitation_text(opportunity: EvaluatedOpportunity) -> str:
@@ -507,6 +846,19 @@ def _string_list(value: Any, limit: int = 8) -> list[str]:
     return cleaned[:limit]
 
 
+def _unique_strings(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    cleaned: list[str] = []
+    for value in values:
+        text = _short_text(value, limit=180)
+        key = text.lower()
+        if not text or key in seen:
+            continue
+        seen.add(key)
+        cleaned.append(text)
+    return cleaned
+
+
 def _short_text(value: Any, limit: int = 120) -> str:
     text = re.sub(r"\s+", " ", str(value or "").strip())
     if not text:
@@ -532,7 +884,10 @@ def _empty_enrichment_stats(opportunity_count: int) -> dict[str, Any]:
         "opportunity_count": opportunity_count,
         "shortlisted_for_model": 0,
         "model_calls_attempted": 0,
+        "model_calls_successful": 0,
         "model_calls_failed": 0,
+        "briefs_generated": 0,
+        "label_changes_after_extraction": 0,
         "model_calls_avoided_by_preflight": 0,
         "model_calls_avoided_by_failure": 0,
         "nim_preflight": {"available": False, "reason": "not_checked"},

@@ -25,6 +25,10 @@ class ProcurementDataBundle:
     rapids_mode: str = "python_fallback"
 
 
+class ProcurementDataUnavailable(RuntimeError):
+    pass
+
+
 def load_procurement_data(refresh: bool = False) -> ProcurementDataBundle:
     fetched_at = _utc_now()
     warnings: list[str] = []
@@ -33,19 +37,36 @@ def load_procurement_data(refresh: bool = False) -> ProcurementDataBundle:
     rapids_mode = "python_fallback"
 
     if config.env_flag(config.OFFLINE_ENV):
-        solicitations = sample_solicitations()
-        awards = sample_awards()
-        if _rapids_available():
+        solicitation_records, solicitation_rapids_mode = _load_cached_records(
+            dataset_key="solicitations",
+            limit=config.row_limit(),
+            source_status=source_status,
+            warnings=warnings,
+        )
+        award_records, award_rapids_mode = _load_cached_records(
+            dataset_key="awards",
+            limit=config.row_limit(),
+            source_status=source_status,
+            warnings=warnings,
+        )
+        if "rapids_cudf" in {solicitation_rapids_mode, award_rapids_mode}:
             engine = "rapids_cudf"
-            rapids_mode = "rapids_available_sample_bypassed"
+            rapids_mode = "rapids_cudf"
+        if solicitation_records is None or award_records is None:
+            return _sample_bundle_or_raise(
+                fetched_at=fetched_at,
+                source_status=source_status,
+                warnings=warnings,
+                reason=f"{config.OFFLINE_ENV}=true but complete cached Toronto Open Data is unavailable",
+            )
+        solicitations = [Solicitation.from_record(record) for record in solicitation_records]
+        awards = [AwardRecord.from_record(record) for record in award_records]
+        warnings.append(f"{config.OFFLINE_ENV}=true; using cached Toronto Open Data only")
         return ProcurementDataBundle(
             solicitations=solicitations,
             awards=awards,
-            source_status={
-                config.SOLICITATIONS_SOURCE: f"fallback_sample ({len(solicitations)} records)",
-                config.AWARDED_CONTRACTS_SOURCE: f"fallback_sample ({len(awards)} records)",
-            },
-            warnings=[f"{config.OFFLINE_ENV}=true; using sample data"],
+            source_status=source_status,
+            warnings=warnings,
             fetched_at=fetched_at,
             engine=engine,
             rapids_mode=rapids_mode,
@@ -73,11 +94,12 @@ def load_procurement_data(refresh: bool = False) -> ProcurementDataBundle:
         rapids_mode = "rapids_cudf"
 
     if solicitation_records is None or award_records is None:
-        solicitations = sample_solicitations()
-        awards = sample_awards()
-        source_status[config.SOLICITATIONS_SOURCE] = f"fallback_sample ({len(solicitations)} records)"
-        source_status[config.AWARDED_CONTRACTS_SOURCE] = f"fallback_sample ({len(awards)} records)"
-        warnings.append("Live/cache procurement data incomplete; using sample data bundle")
+        return _sample_bundle_or_raise(
+            fetched_at=fetched_at,
+            source_status=source_status,
+            warnings=warnings,
+            reason="Live/cache Toronto Open Data is incomplete",
+        )
     else:
         solicitations = [Solicitation.from_record(record) for record in solicitation_records]
         awards = [AwardRecord.from_record(record) for record in award_records]
@@ -90,6 +112,52 @@ def load_procurement_data(refresh: bool = False) -> ProcurementDataBundle:
         fetched_at=fetched_at,
         engine=engine,
         rapids_mode=rapids_mode,
+    )
+
+
+def _load_cached_records(
+    dataset_key: str,
+    limit: int,
+    source_status: dict[str, str],
+    warnings: list[str],
+) -> tuple[list[dict[str, Any]] | None, str]:
+    dataset = config.DATASETS[dataset_key]
+    source_name = str(dataset["name"])
+    cache_path = config.CACHE_DIR / str(dataset["cache_file"])
+    cached = _read_cache(cache_path)
+    if cached is None:
+        warnings.append(f"{source_name}: cached Toronto Open Data unavailable at {cache_path}")
+        return None, "python_fallback"
+    source_status[source_name] = f"cache_offline ({len(cached)} records)"
+    return _prepare_records(dataset_key, cached, limit, warnings)
+
+
+def _sample_bundle_or_raise(
+    fetched_at: str,
+    source_status: dict[str, str],
+    warnings: list[str],
+    reason: str,
+) -> ProcurementDataBundle:
+    if not config.env_flag(config.ALLOW_SAMPLE_DATA_ENV):
+        raise ProcurementDataUnavailable(
+            f"{reason}. Refusing to show bundled sample solicitations; every demo posting must come "
+            "from Toronto Open Data. Restore data/cache, enable network refresh, or set "
+            f"{config.ALLOW_SAMPLE_DATA_ENV}=1 only for local tests."
+        )
+
+    solicitations = sample_solicitations()
+    awards = sample_awards()
+    source_status[config.SOLICITATIONS_SOURCE] = f"dev_sample_only ({len(solicitations)} records)"
+    source_status[config.AWARDED_CONTRACTS_SOURCE] = f"dev_sample_only ({len(awards)} records)"
+    warnings.append(f"{reason}; {config.ALLOW_SAMPLE_DATA_ENV}=true so bundled dev samples were used")
+    return ProcurementDataBundle(
+        solicitations=solicitations,
+        awards=awards,
+        source_status=source_status,
+        warnings=warnings,
+        fetched_at=fetched_at,
+        engine="python_stdlib",
+        rapids_mode="python_fallback",
     )
 
 

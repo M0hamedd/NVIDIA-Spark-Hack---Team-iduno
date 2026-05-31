@@ -113,13 +113,13 @@ class NemotronFallbackTests(unittest.TestCase):
         self.assertIn("traffic staging", enriched[0].requirements.services)
         self.assertEqual(enriched[0].requirements.next_action, "Prepare owner review package.")
         self.assertIn("Owner-ready road repair brief", enriched[0].opportunity_brief.owner_summary)
-        self.assertIn("RFQ-123 is a RFT from Transportation Services", enriched[0].bid_fitness_trace.final_rationale)
-        self.assertIn("dataset description points to road repairs", enriched[0].bid_fitness_trace.final_rationale)
-        self.assertIn("Prepare owner review package", enriched[0].bid_fitness_trace.final_rationale)
+        self.assertEqual(enriched[0].pre_extraction_label, "Pursue")
+        self.assertFalse(enriched[0].to_dict()["label_changed_by_extraction"])
+        self.assertEqual(enriched[0].bid_fitness_trace.final_rationale, "")
         self.assertNotIn("Capability fit:", enriched[0].bid_fitness_trace.final_rationale)
         self.assertNotIn("already has capability", enriched[0].opportunity_brief.fit_reason.lower())
 
-    def test_local_nim_blocker_downgrades_pursue_to_review(self) -> None:
+    def test_local_nim_blocker_is_brief_only_and_does_not_change_decision(self) -> None:
         profile = BusinessProfile()
         response = {
             "services": ["road repairs", "traffic staging"],
@@ -150,10 +150,11 @@ class NemotronFallbackTests(unittest.TestCase):
 
         self.assertEqual(mode, "local_nim")
         self.assertEqual(enriched[0].pre_extraction_label, "Pursue")
-        self.assertEqual(enriched[0].label, "Review")
-        self.assertTrue(enriched[0].to_dict()["label_changed_by_extraction"])
-        self.assertIn("confirmed bonding capacity", enriched[0].missing_requirements)
-        self.assertIn("Nemotron extraction reconciliation rule", enriched[0].bid_fitness_trace.rules_triggered)
+        self.assertEqual(enriched[0].label, "Pursue")
+        self.assertFalse(enriched[0].to_dict()["label_changed_by_extraction"])
+        self.assertEqual(enriched[0].missing_requirements, ["confirm bonding capacity"])
+        self.assertIn("confirmed bonding capacity", enriched[0].opportunity_brief.missing_items)
+        self.assertNotIn("Nemotron extraction reconciliation rule", enriched[0].bid_fitness_trace.rules_triggered)
 
     def test_schema_rejection_retries_without_schema_once(self) -> None:
         profile = BusinessProfile()

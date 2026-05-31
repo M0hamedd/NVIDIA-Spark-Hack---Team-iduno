@@ -347,15 +347,12 @@ def _with_extraction(
     extraction: RequirementExtraction,
     brief: OpportunityBrief,
 ) -> EvaluatedOpportunity:
-    reconciled = _reconcile_extraction(profile, opportunity, extraction, brief)
-    if extraction.source == "local_nim":
-        reconciled = _with_owner_brief_rationale(reconciled, brief, extraction)
     return replace(
-        reconciled,
+        opportunity,
         pre_extraction_label=opportunity.label,
         requirements=extraction,
         opportunity_brief=brief,
-        nemotron_summary=_summary_from_requirements(profile, reconciled, extraction),
+        nemotron_summary=_summary_from_requirements(profile, opportunity, extraction),
     )
 
 

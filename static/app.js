@@ -792,9 +792,9 @@ function renderScorecard(result) {
       <p>${number(metrics.model_calls_attempted)} deep checks attempted | ${number(metrics.model_calls_successful)} successful | ${number(metrics.briefs_generated)} brief(s) | ${escapeHtml(reductionText)}</p>
     </article>
     <article class="scorecard-item">
-      <span>Safety Check</span>
-      <strong>${number(metrics.label_changes_after_extraction)} changed</strong>
-      <p>A bid brief can move a listing from "Recommended Bid" to "check first" before a checklist is made.</p>
+      <span>Brief Layer</span>
+      <strong>${number(metrics.briefs_generated)} generated</strong>
+      <p>Listing briefs summarize the contract package after scoring; fit labels and ranking stay with the local decision engine.</p>
     </article>
     <article class="scorecard-item">
       <span>Past-Winner Signal</span>
@@ -1564,13 +1564,13 @@ function marketFitLanguage(item) {
 
 function briefSourceLabel(brief) {
   if (!brief || !brief.source) {
-    return "Bid brief";
+    return "Listing brief";
   }
   if (brief.source === "local_nim") {
-    return "Local Nemotron brief";
+    return "Detailed listing brief";
   }
   if (brief.source === "deterministic_fallback") {
-    return "Basic local brief";
+    return "Basic listing brief";
   }
   return `${titleCase(humanizeToken(brief.source))} brief`;
 }
@@ -1617,7 +1617,7 @@ function renderOpportunityBrief(brief) {
     <div class="brief-panel ${brief.source === "local_nim" ? "brief-nim" : "brief-fallback"}">
       <div class="brief-heading">
         <strong>${escapeHtml(source)}</strong>
-        ${brief.source === "local_nim" ? "<span>Ready</span>" : "<span>Needs bid brief</span>"}
+        ${brief.source === "local_nim" ? "<span>Ready</span>" : "<span>Basic</span>"}
       </div>
       ${body ? `<p>${escapeHtml(body)}</p>` : ""}
       ${documents.length ? `<div class="brief-row"><span>Docs</span><em>${escapeHtml(documents.join(", "))}</em></div>` : ""}

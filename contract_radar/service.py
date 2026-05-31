@@ -134,13 +134,6 @@ class ContractRadarService:
             retriever=self._rag_retriever_for(profile, data_bundle.awards),
         )
         stage_start = mark_stage("attach_rag_evidence", stage_start)
-        extraction_candidates = [
-            item for item in evaluated if item.label != "Skip"
-        ][:40]
-        enriched, nemotron_mode, nemotron_stats = enrich_top_opportunities_with_stats(profile, extraction_candidates)
-        stage_start = mark_stage("nemotron_enrichment", stage_start)
-        enriched_by_doc = {item.solicitation.document_number: item for item in enriched}
-        evaluated = [enriched_by_doc.get(item.solicitation.document_number, item) for item in evaluated]
         market_model = self._market_model_for(profile, data_bundle.awards)
         stage_start = mark_stage("market_model", stage_start)
         evaluated = apply_market_intelligence(
@@ -157,6 +150,13 @@ class ContractRadarService:
         optimizer_status = cuopt_status()
         evaluated = optimize_bid_portfolio(profile, evaluated, priority_mode=priority_mode)
         stage_start = mark_stage("portfolio_optimization", stage_start)
+        extraction_candidates = [
+            item for item in evaluated if item.label != "Skip"
+        ][:40]
+        enriched, nemotron_mode, nemotron_stats = enrich_top_opportunities_with_stats(profile, extraction_candidates)
+        stage_start = mark_stage("listing_brief_enrichment", stage_start)
+        enriched_by_doc = {item.solicitation.document_number: item for item in enriched}
+        evaluated = [enriched_by_doc.get(item.solicitation.document_number, item) for item in evaluated]
         skipped = _prioritized_skips(evaluated)
         scorecard = scorecard_from_evaluated(profile, evaluated, historical_summary)
         mark_stage("scorecard", stage_start)

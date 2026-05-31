@@ -409,6 +409,17 @@ button:disabled {
 .profile-lens-copy em {
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.profile-lens-copy strong {
+  display: -webkit-box;
+  min-height: 2.1em;
+  line-height: 1.05;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.profile-lens-copy em {
   white-space: nowrap;
 }
 

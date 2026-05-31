@@ -1822,11 +1822,11 @@ function profileLabel(profile) {
 
 function compactProfileLabel(profile) {
   const labels = {
-    road_civil_infrastructure: "Road/Civil",
-    parks_landscape: "Parks",
-    professional_engineering_design: "Engineering"
+    road_civil_infrastructure: "Harbourfront Civil",
+    parks_landscape: "Greenline Parks",
+    professional_engineering_design: "CivicWorks Design"
   };
-  return labels[profile.profile_id] || profileLabel(profile);
+  return labels[profile.profile_id] || compactCompanyName(profile.name) || profileLabel(profile);
 }
 
 function compactCompanyName(name) {

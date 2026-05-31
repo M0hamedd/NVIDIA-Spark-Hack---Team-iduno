@@ -130,6 +130,10 @@ def main() -> None:
     args = _parse_args()
     nemotron_process = None
     use_nemotron = not args.without_nemotron or args.nemotron_setup_only
+    if not args.skip_cuopt_install:
+        from contract_radar.nvidia_deps import ensure_spark_cuopt
+
+        ensure_spark_cuopt()
     if args.without_nemotron and not args.nemotron_setup_only:
         os.environ["CONTRACT_RADAR_DISABLE_NEMOTRON"] = "1"
     if use_nemotron:
@@ -181,6 +185,11 @@ def _parse_args() -> argparse.Namespace:
         "--nemotron-setup-only",
         action="store_true",
         help="Build/download the local Nemotron runtime, then exit without starting the app.",
+    )
+    parser.add_argument(
+        "--skip-cuopt-install",
+        action="store_true",
+        help="Skip the DGX Spark best-effort cuOpt dependency bootstrap.",
     )
     return parser.parse_args()
 

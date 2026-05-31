@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 from datetime import date
+from unittest.mock import patch
 
 from contract_radar.matcher import evaluate_opportunities
 from contract_radar.models import AwardRecord, Solicitation
@@ -54,6 +55,31 @@ class RobustPipelineTests(unittest.TestCase):
         self.assertIn(decision.decision, {"Pursue If Capacity Frees", "Review", "Monitor"})
         self.assertFalse(decision.capacity_used)
         self.assertGreater(decision.expected_value, 0)
+
+    def test_optimizer_uses_cuopt_adapter_when_available(self) -> None:
+        profile, opportunity = _scored_opportunity()
+        document_number = opportunity.solicitation.document_number
+
+        with patch("contract_radar.portfolio.cuopt_status", return_value={"available": True}):
+            with patch("contract_radar.portfolio._solve_with_cuopt", return_value={document_number}) as solve:
+                optimized = optimize_bid_portfolio(profile, [opportunity])
+
+        solve.assert_called_once()
+        decision = optimized[0].portfolio_decision
+        self.assertEqual(decision.engine, "cuopt_milp")
+        self.assertEqual(decision.decision, "Pursue Now")
+        self.assertTrue(decision.capacity_used)
+
+    def test_optimizer_falls_back_if_cuopt_solve_fails(self) -> None:
+        profile, opportunity = _scored_opportunity()
+
+        with patch("contract_radar.portfolio.cuopt_status", return_value={"available": True}):
+            with patch("contract_radar.portfolio._solve_with_cuopt", side_effect=RuntimeError("solver failed")):
+                optimized = optimize_bid_portfolio(profile, [opportunity])
+
+        decision = optimized[0].portfolio_decision
+        self.assertEqual(decision.engine, "greedy_fallback_after_cuopt_error")
+        self.assertIn(decision.decision, {"Pursue Now", "Pursue If Capacity Frees", "Review", "Monitor"})
 
 
 def _scored_opportunity() -> tuple[object, object]:

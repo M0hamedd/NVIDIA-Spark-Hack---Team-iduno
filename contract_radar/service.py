@@ -90,7 +90,7 @@ class ContractRadarService:
         from contract_radar.history import summarize_past_opportunities
         from contract_radar.matcher import evaluate_opportunities, normalize_priority_mode
         from contract_radar.nemotron import enrich_top_opportunities_with_stats
-        from contract_radar.portfolio import cuopt_status, optimize_bid_portfolio
+        from contract_radar.portfolio import optimize_bid_portfolio
         from contract_radar.precomputed import load_precomputed_scan
         from contract_radar.rag import attach_rag_evidence
         from contract_radar.ranker import apply_market_intelligence
@@ -200,7 +200,6 @@ class ContractRadarService:
         stage_start = mark_stage("bid_pricing_engine", stage_start)
         evaluated = attach_revenue_simulations(profile, evaluated)
         stage_start = mark_stage("revenue_simulation", stage_start)
-        optimizer_status = cuopt_status()
         evaluated = optimize_bid_portfolio(profile, evaluated, priority_mode=priority_mode)
         stage_start = mark_stage("portfolio_optimization", stage_start)
         top_inbox, watch_inbox = _contract_inbox_items(evaluated)
@@ -236,8 +235,8 @@ class ContractRadarService:
         metrics_dict["value_model_mode"] = (market_model.value_summary or {}).get("mode", "historical_average")
         metrics_dict["value_model_mae"] = (market_model.value_summary or {}).get("mae", 0.0)
         metrics_dict["value_model_mape"] = (market_model.value_summary or {}).get("mape", 0.0)
-        metrics_dict["cuopt_mode"] = optimizer_status.get("mode", "greedy_fallback")
-        if optimizer_status.get("available") and "cuOpt" not in metrics_dict["active_nvidia_tools"]:
+        metrics_dict["cuopt_mode"] = _first_portfolio_engine(evaluated)
+        if metrics_dict["cuopt_mode"] == "cuopt_milp" and "cuOpt" not in metrics_dict["active_nvidia_tools"]:
             metrics_dict["active_nvidia_tools"].append("cuOpt")
             metrics_dict["nvidia_stack_active"] = True
         technical_depth_proof = _technical_depth_proof(metrics_dict, scorecard)
@@ -682,3 +681,10 @@ def _first_rag_mode(evaluated: list[EvaluatedOpportunity]) -> str:
         if item.rag_evidence and item.rag_evidence.mode:
             return item.rag_evidence.mode
     return "not_retrieved"
+
+
+def _first_portfolio_engine(evaluated: list[EvaluatedOpportunity]) -> str:
+    for item in evaluated:
+        if item.portfolio_decision and item.portfolio_decision.engine:
+            return item.portfolio_decision.engine
+    return "greedy_fallback"

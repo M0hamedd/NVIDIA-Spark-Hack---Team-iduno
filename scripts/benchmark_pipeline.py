@@ -125,6 +125,7 @@ def _summary(scans: list[dict[str, Any]], repeat: int, elapsed_ms: int) -> dict[
             "active_nvidia_tools": active_nvidia_tools,
             "rapids_mode": metrics.get("rapids_mode", "python_fallback"),
             "nemotron_mode": metrics.get("nemotron_mode", "deterministic_fallback"),
+            "cuopt_mode": metrics.get("cuopt_mode", "greedy_fallback"),
         },
         "last_scan": {
             "solicitations_loaded": solicitations_loaded,
@@ -149,6 +150,7 @@ def _summary(scans: list[dict[str, Any]], repeat: int, elapsed_ms: int) -> dict[
             "data_source_statuses": data_source_statuses,
             "rapids_mode": metrics.get("rapids_mode", "python_fallback"),
             "nemotron_mode": metrics.get("nemotron_mode", "deterministic_fallback"),
+            "cuopt_mode": metrics.get("cuopt_mode", "greedy_fallback"),
             "nvidia_stack_active": bool(metrics.get("nvidia_stack_active")),
             "active_nvidia_tools": active_nvidia_tools,
         },
@@ -175,7 +177,8 @@ def _active_nvidia_path(metrics: dict[str, Any], active_nvidia_tools: list[str])
         return ", ".join(active_nvidia_tools)
     rapids_mode = metrics.get("rapids_mode", "python_fallback")
     nemotron_mode = metrics.get("nemotron_mode", "deterministic_fallback")
-    return f"fallback (RAPIDS={rapids_mode}, NIM={nemotron_mode})"
+    cuopt_mode = metrics.get("cuopt_mode", "greedy_fallback")
+    return f"fallback (RAPIDS={rapids_mode}, NIM={nemotron_mode}, cuOpt={cuopt_mode})"
 
 
 def _nvidia_gate_error(summary: dict[str, Any]) -> str:
@@ -186,7 +189,7 @@ def _nvidia_gate_error(summary: dict[str, Any]) -> str:
         "NVIDIA proof gate failed: last scan reported no active NVIDIA tools "
         f"(nvidia_stack_active={str(last['nvidia_stack_active']).lower()}, "
         f"active_nvidia_tools={last['active_nvidia_tools']}). "
-        "Start RAPIDS/cuDF or local NIM/Nemotron, then rerun without --offline or with a reachable "
+        "Start RAPIDS/cuDF, local NIM/Nemotron, or cuOpt, then rerun without --offline or with a reachable "
         "local NVIDIA path; omit --require-nvidia for deterministic fallback demos."
     )
 
@@ -214,7 +217,7 @@ def _print_text_summary(summary: dict[str, Any]) -> None:
     )
     print(
         "NVIDIA path: "
-        f"RAPIDS={last['rapids_mode']}, NIM={last['nemotron_mode']}, "
+        f"RAPIDS={last['rapids_mode']}, NIM={last['nemotron_mode']}, cuOpt={last['cuopt_mode']}, "
         f"active={last['active_nvidia_path']}"
     )
     print(

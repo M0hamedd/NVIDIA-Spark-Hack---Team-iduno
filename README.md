@@ -38,7 +38,7 @@ Install the local ranker dependencies before running the app or training proof:
 python -m pip install -r requirements.txt
 ```
 
-`requirements.txt` is already included in the repo. Do not commit the installed `.venv` or Python packages; build them on the Spark so the wheels match Linux/CUDA/Python. After pulling the repo on DGX Spark/Linux, set up the Python environment with:
+`requirements.txt` is already included in the repo. Do not commit the installed `.venv` or Python packages; build them on the Spark so the wheels match Linux/CUDA/Python. The default Spark requirements use CUDA 13 wheels for RAPIDS/cuDF and cuOpt; if the Spark image is CUDA 12, swap `cudf-cu13`/`cuopt-cu13` for the matching CUDA 12 package names before installing. After pulling the repo on DGX Spark/Linux, set up the Python environment with:
 
 ```bash
 bash scripts/setup_spark.sh
@@ -61,6 +61,8 @@ python3 app.py
 ```
 
 The first run builds `llama.cpp`, downloads the Q4 Nemotron GGUF model, starts an OpenAI-compatible model server on `http://127.0.0.1:30000/v1`, then launches the app on `http://127.0.0.1:8080`. Later runs reuse the downloaded model and built server. Runtime build files live outside the repo in `~/.contract-radar/nemotron`, model files default to `data/models/nemotron3-gguf`, and model-server logs are written to `~/.contract-radar/nemotron/llama-server.log`.
+
+On DGX Spark/Linux, `python app.py` also checks whether cuOpt's Python MILP API is importable. If cuOpt is missing and `nvidia-smi` is available, the app tries a best-effort install from NVIDIA's Python index using the detected CUDA major version, then continues with the deterministic greedy portfolio fallback if installation fails. Set `CONTRACT_RADAR_AUTO_INSTALL_CUOPT=0` or pass `--skip-cuopt-install` to skip this startup check.
 
 If you manually download the model, place it here before starting the app:
 
@@ -184,6 +186,9 @@ $env:CONTRACT_RADAR_NEMOTRON_PORT="30000"
 $env:CONTRACT_RADAR_NEMOTRON_HOME="$HOME/.contract-radar/nemotron"
 $env:CONTRACT_RADAR_NEMOTRON_MODEL_DIR="data/models/nemotron3-gguf"
 $env:CONTRACT_RADAR_NEMOTRON_MODEL_FILE="Nemotron-3-Nano-30B-A3B-UD-Q4_K_XL.gguf"
+$env:CONTRACT_RADAR_AUTO_INSTALL_CUOPT="1"
+$env:CONTRACT_RADAR_CUDA_MAJOR="13"
+$env:CONTRACT_RADAR_CUOPT_PACKAGE="cuopt-cu13"
 ```
 
 - `CONTRACT_RADAR_CACHE_DIR`: directory for cached Toronto Open Data responses.
@@ -201,6 +206,9 @@ $env:CONTRACT_RADAR_NEMOTRON_MODEL_FILE="Nemotron-3-Nano-30B-A3B-UD-Q4_K_XL.gguf
 - `CONTRACT_RADAR_NEMOTRON_HOME`: local directory for the managed llama.cpp build, Hugging Face CLI venv, and server log.
 - `CONTRACT_RADAR_NEMOTRON_MODEL_DIR`: local directory for manually downloaded or managed GGUF model files.
 - `CONTRACT_RADAR_NEMOTRON_MODEL_FILE`: GGUF model filename. Defaults to the smaller Q4 Nemotron file for demo speed.
+- `CONTRACT_RADAR_AUTO_INSTALL_CUOPT`: set to `0` to disable the best-effort DGX Spark cuOpt install check at `app.py` startup.
+- `CONTRACT_RADAR_CUDA_MAJOR`: optional override for choosing `cuopt-cu12` or `cuopt-cu13` during the startup check.
+- `CONTRACT_RADAR_CUOPT_PACKAGE`: optional package override if the Spark image uses a different cuOpt wheel name.
 
 NIM/Nemotron is no longer just a nice-to-have in the owner workflow. The app can still rank opportunities deterministically when local NIM is unavailable, but owner-ready packet drafting is blocked until Nemotron generates a validated bid brief. When `NIM_BASE_URL` is reachable, the app asks a local Nemotron model for structured fields, blockers, required documents, clarification questions, next steps, and grounded buyer-email wording for already-shortlisted opportunities. Nemotron does **not** make the final `Pursue`, `Review`, `Monitor`, or `Skip` decision; validated blockers can downgrade a `Pursue` recommendation to `Review` through the bid-fitness policy.
 
@@ -212,9 +220,10 @@ DGX Spark is used as the local AI and data processing workstation:
 - Keep the business profile, capacity limits, and bid strategy on-device.
 - Warn when an otherwise relevant opportunity collides with active pursuits, deadline pressure, or execution capacity.
 - Use RAPIDS/cuDF for raw-record filtering when available, with Python parity fallback.
+- Use cuOpt for portfolio-level bid selection when the cuOpt Python API is installed, with deterministic greedy fallback.
 - Use fast deterministic filtering before model calls and report how many model calls were avoided.
 - Use local Nemotron/NIM only for high-value language tasks after deterministic shortlisting: extracting procurement requirements into structured fields and helping draft evidence-backed owner-facing wording.
-- Show the active NVIDIA path, records/sec, model calls avoided, and insight scorecard in Evidence View and benchmark output.
+- Show the active NVIDIA path, records/sec, model calls avoided, cuOpt portfolio mode, and insight scorecard in Evidence View and benchmark output.
 
 The demo message is: **the model explains and drafts from computed evidence; it does not guess from vibes.**
 

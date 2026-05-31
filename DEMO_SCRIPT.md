@@ -105,6 +105,7 @@ Click:
   - rejection counts
   - runtime
   - active NVIDIA path
+  - cuOpt portfolio mode
   - records per second
   - model calls avoided
   - matched terms

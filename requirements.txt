@@ -8,3 +8,7 @@ threadpoolctl==3.6.0
 
 # DGX Spark RAPIDS/cuDF path. If the Spark image is CUDA 12, use cudf-cu12 instead.
 cudf-cu13==26.4.*; platform_system == "Linux"
+
+# Optional DGX Spark cuOpt path for portfolio-level bid selection. If the Spark
+# image is CUDA 12, use cuopt-cu12 instead.
+cuopt-cu13==26.4.*; platform_system == "Linux"

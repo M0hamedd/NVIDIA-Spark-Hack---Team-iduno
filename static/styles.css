@@ -808,16 +808,11 @@ button:disabled {
   overflow-wrap: anywhere;
 }
 
-.docket-score,
 .card-meta,
 .docket-rationale {
   color: var(--muted);
   font-size: 0.74rem;
   font-weight: 720;
-}
-
-.docket-score {
-  font-family: var(--mono);
 }
 
 .card-meta {

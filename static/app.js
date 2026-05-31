@@ -439,7 +439,6 @@ function opportunityCard(item) {
   const displayLabel = ownerDecisionLabel(item.label);
   const decisionClass = `decision-${internalLabel.toLowerCase()}`;
   const reason = queueReason(item);
-  const score = item.rank_score === undefined || item.rank_score === null ? "" : `Fit ${item.rank_score}`;
   const bidLabel = bidRecommendationLabel(item);
 
   return `
@@ -449,7 +448,6 @@ function opportunityCard(item) {
           <h4 class="card-title">${escapeHtml(getCompactOpportunityTitle(item, 120))}</h4>
           <div class="card-badges">
             <span class="label-pill ${labelClass(internalLabel)}">${escapeHtml(displayLabel)}</span>
-            ${score ? `<span class="docket-score">${escapeHtml(score)}</span>` : ""}
           </div>
         </div>
         <div class="card-meta">

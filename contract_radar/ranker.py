@@ -352,6 +352,30 @@ def apply_market_intelligence(
     value_context = _award_value_context_for_awards(profile, awards, today)
     model = trained_model.model
     for opportunity in opportunities:
+        if opportunity.label == "Skip":
+            opportunity.market_fit = MarketFitSignal(
+                source="skipped_by_bid_gates",
+                score=0.0,
+                confidence="Skipped",
+                summary="Skipped before award-history market scoring because deterministic bid gates found a blocker.",
+                evidence=list(opportunity.rejection_reasons[:3]),
+                model_metrics={
+                    "mode": trained_model.summary.get("mode", "sklearn_award_history"),
+                    "examples": trained_model.summary.get("examples", 0),
+                },
+            )
+            opportunity.fit_probability = 0.0
+            opportunity.bid_recommendation = BidRecommendation(
+                source="skipped_by_bid_gates",
+                basis="deterministic bid gates rejected this listing before value estimation",
+                evidence=list(opportunity.rejection_reasons[:3]),
+            )
+            opportunity.model_explanation = ModelExplanation(
+                source="skipped_by_bid_gates",
+                model_type="not_scored",
+                evidence=["Skipped listings are not sent through market/value scoring during the main scan."],
+            )
+            continue
         features = extract_market_opportunity_features(profile, opportunity, context)
         score = float(model.predict_proba([[features.get(name, 0.0) for name in MARKET_FEATURE_NAMES]])[0][1])
         signal = _market_signal_from_score(opportunity, features, score, trained_model)

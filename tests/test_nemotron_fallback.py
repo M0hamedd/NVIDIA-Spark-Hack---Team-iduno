@@ -69,6 +69,9 @@ class NemotronFallbackTests(unittest.TestCase):
         self.assertEqual(enriched[0].requirements.deadline_risk, "Manageable")
         self.assertIn("This is road repairs, sidewalk repairs, and traffic staging work", enriched[0].requirements.summary)
         self.assertEqual(enriched[0].opportunity_brief.source, "deterministic_fallback")
+        self.assertIn("RFQ-123 is a Request for Tender from Transportation Services", enriched[0].opportunity_brief.fit_reason)
+        self.assertIn("dataset description points to road repairs", enriched[0].opportunity_brief.fit_reason)
+        self.assertNotIn("already has capability", enriched[0].opportunity_brief.fit_reason.lower())
         self.assertIn("official Toronto bidding portal", " ".join(enriched[0].opportunity_brief.next_steps))
         self.assertNotIn("Road repairs, sidewalk repairs, curb repair, asphalt paving", enriched[0].nemotron_summary)
         self.assertIn("Harbourfront Civil Works Ltd.", enriched[0].nemotron_summary)
@@ -110,9 +113,11 @@ class NemotronFallbackTests(unittest.TestCase):
         self.assertIn("traffic staging", enriched[0].requirements.services)
         self.assertEqual(enriched[0].requirements.next_action, "Prepare owner review package.")
         self.assertIn("Owner-ready road repair brief", enriched[0].opportunity_brief.owner_summary)
-        self.assertIn("The profile has matching road repair capacity", enriched[0].bid_fitness_trace.final_rationale)
+        self.assertIn("RFQ-123 is a RFT from Transportation Services", enriched[0].bid_fitness_trace.final_rationale)
+        self.assertIn("dataset description points to road repairs", enriched[0].bid_fitness_trace.final_rationale)
         self.assertIn("Prepare owner review package", enriched[0].bid_fitness_trace.final_rationale)
         self.assertNotIn("Capability fit:", enriched[0].bid_fitness_trace.final_rationale)
+        self.assertNotIn("already has capability", enriched[0].opportunity_brief.fit_reason.lower())
 
     def test_local_nim_blocker_downgrades_pursue_to_review(self) -> None:
         profile = BusinessProfile()

@@ -14,7 +14,7 @@ from contract_radar.models import BusinessProfile, EvaluatedOpportunity, Opportu
 
 DEFAULT_BASE_URL = "http://localhost:8000/v1"
 DEFAULT_MODEL = "nvidia/llama-3.1-nemotron-70b-instruct"
-TOP_CANDIDATE_LIMIT = int(os.environ.get("CONTRACT_RADAR_NIM_SHORTLIST_LIMIT", "24") or "24")
+TOP_CANDIDATE_LIMIT = int(os.environ.get("CONTRACT_RADAR_NIM_SHORTLIST_LIMIT", "3") or "3")
 NIM_PREFLIGHT_TIMEOUT_SECONDS = 2.0
 NIM_CHAT_TIMEOUT_SECONDS = 45.0
 NIM_PREFLIGHT_CACHE_SECONDS = 30.0
@@ -257,7 +257,14 @@ def _extract_with_nim(
     except SchemaRejectedError:
         content = _chat_completion(prompt, with_schema=False)
     payload = _extract_json_object(content)
-    return _validate_extraction(payload, source="local_nim"), _validate_brief(payload, source="local_nim")
+    extraction = _validate_extraction(payload, source="local_nim")
+    brief = _with_dataset_grounding(
+        profile,
+        opportunity,
+        extraction,
+        _validate_brief(payload, source="local_nim"),
+    )
+    return extraction, brief
 
 
 def _chat_completion(prompt: str, with_schema: bool) -> str:
@@ -350,7 +357,7 @@ def _with_owner_brief_rationale(
 
     trace = opportunity.bid_fitness_trace
     positive_signals = list(trace.positive_signals)
-    fit_reason = _short_text(brief.fit_reason, limit=420)
+    fit_reason = _short_text(brief.fit_reason, limit=700)
     if fit_reason and fit_reason not in positive_signals:
         positive_signals.insert(0, fit_reason)
 
@@ -369,7 +376,7 @@ def _brief_final_rationale(
 ) -> str:
     label = opportunity.label
     summary = _sentence_fragment(_short_text(brief.owner_summary, limit=260))
-    fit_reason = _sentence_fragment(_short_text(brief.fit_reason, limit=420))
+    fit_reason = _sentence_fragment(_short_text(brief.fit_reason, limit=700))
     next_step = _sentence_fragment(_short_text(
         (brief.next_steps[0] if brief.next_steps else extraction.next_action),
         limit=140,
@@ -614,29 +621,111 @@ def _fit_reason(
     opportunity: EvaluatedOpportunity,
     extraction: RequirementExtraction,
 ) -> str:
+    solicitation = opportunity.solicitation
     services = extraction.services or opportunity.matched_terms
     history = opportunity.historical
     assessment = opportunity.capacity_assessment
     parts: list[str] = []
+    title = _scope_excerpt(solicitation.description, limit=150)
+    buyer_context = _buyer_context(solicitation)
+    procurement = extraction.procurement_type or solicitation.solicitation_type or solicitation.category or "listed procurement"
     if services:
         parts.append(
-            f"{profile.name} already has capability signals for {_human_join(services[:4])}, "
-            "which line up with the listed scope."
+            f"{solicitation.document_number or 'This listing'} is a {procurement} from {buyer_context} for "
+            f"{_human_join(services[:4])}."
         )
     else:
-        parts.append(f"{profile.name} matches this opportunity through the selected {profile.label} profile.")
+        parts.append(
+            f"{solicitation.document_number or 'This listing'} is a {procurement} from {buyer_context} "
+            f"that fits the selected {profile.label} lane."
+        )
+    if title:
+        parts.append(f"The dataset description points to {title}.")
     if history.similar_count:
         parts.append(
-            f"The local award comparison found {history.similar_count} similar Toronto award(s)"
+            f"Historical Toronto data found {history.similar_count} similar award(s)"
             f"{f' with a median award around ${history.award_median:,.0f}' if history.award_median else ''}, "
-            "so the recommendation is grounded in past purchasing patterns instead of keyword overlap."
+            "which anchors the recommendation in past purchasing patterns."
         )
+    rag_detail = _rag_fit_sentence(opportunity)
+    if rag_detail:
+        parts.append(rag_detail)
     if assessment:
+        deadline = _deadline_sentence(opportunity.days_until_deadline, solicitation.submission_deadline)
         parts.append(
             f"Capacity check shows {assessment.pursuit_load.lower()} pursuit load, "
-            f"{assessment.response_capacity.lower()}, and {assessment.execution_capacity.lower()}."
+            f"{assessment.response_capacity.lower()}, and {assessment.execution_capacity.lower()}"
+            f"{deadline}."
         )
     return " ".join(parts)
+
+
+def _with_dataset_grounding(
+    profile: BusinessProfile,
+    opportunity: EvaluatedOpportunity,
+    extraction: RequirementExtraction,
+    brief: OpportunityBrief,
+) -> OpportunityBrief:
+    fit_reason = str(brief.fit_reason or "").strip()
+    if _brief_fit_is_generic(fit_reason):
+        return replace(brief, fit_reason=_fit_reason(profile, opportunity, extraction))
+    return brief
+
+
+def _brief_fit_is_generic(value: str) -> bool:
+    normalized = value.lower()
+    generic_markers = (
+        "already has capability",
+        "has matching",
+        "matching road repair capacity",
+        "matches this opportunity",
+    )
+    return not value or any(marker in normalized for marker in generic_markers)
+
+
+def _buyer_context(solicitation: Any) -> str:
+    division = str(getattr(solicitation, "division", "") or "").strip()
+    buyer = str(getattr(solicitation, "buyer_name", "") or "").strip()
+    if division and buyer:
+        return f"{division} ({buyer})"
+    return division or buyer or "the City"
+
+
+def _scope_excerpt(description: str, limit: int = 180) -> str:
+    text = _short_text(description, limit=limit)
+    if not text:
+        return ""
+    return text[0].lower() + text[1:] if len(text) > 1 else text.lower()
+
+
+def _deadline_sentence(days_until_deadline: int | None, deadline: Any) -> str:
+    if days_until_deadline is None:
+        return "; the deadline still needs confirmation"
+    if deadline:
+        deadline_text = deadline.isoformat() if hasattr(deadline, "isoformat") else str(deadline)
+        return f"; {days_until_deadline} day(s) remain before {deadline_text}"
+    return f"; {days_until_deadline} day(s) remain"
+
+
+def _rag_fit_sentence(opportunity: EvaluatedOpportunity) -> str:
+    rag = opportunity.rag_evidence
+    analogs = [analog for analog in rag.analogs if isinstance(analog, dict)]
+    if not analogs:
+        return ""
+    analog = analogs[0]
+    supplier = _short_text(analog.get("supplier"), limit=80)
+    division = _short_text(analog.get("division"), limit=80)
+    value = float(analog.get("award_value") or 0.0)
+    pieces = []
+    if supplier:
+        pieces.append(f"a past award to {supplier}")
+    if division:
+        pieces.append(f"in {division}")
+    if value > 0:
+        pieces.append(f"worth about ${value:,.0f}")
+    if not pieces:
+        return ""
+    return "The closest historical analog is " + " ".join(pieces) + "."
 
 
 def _fallback_email_draft(
@@ -669,8 +758,16 @@ def _structured_prompt(profile: BusinessProfile, opportunity: EvaluatedOpportuni
         {
             "task": (
                 "Extract structured procurement requirements. Return one JSON object matching the schema. "
-                "Do not invent requirements. Empty arrays are allowed."
+                "Do not invent requirements. Empty arrays are allowed. Write a custom brief for this exact "
+                "listing, not a reusable profile blurb."
             ),
+            "writing_rules": [
+                "Do not start fit_reason with the business name.",
+                "Do not use repeated boilerplate such as 'already has capability signals' or 'has matching capacity'.",
+                "Mention at least one concrete detail from the solicitation description.",
+                "Mention the buyer/division, procurement type, deadline or document number when available.",
+                "Use historical/RAG evidence only if it is present in the supplied data.",
+            ],
             "business_context": {
                 "name": profile.name,
                 "business_type": profile.business_type,
@@ -690,8 +787,12 @@ def _structured_prompt(profile: BusinessProfile, opportunity: EvaluatedOpportuni
                 "deadline": solicitation.submission_deadline.isoformat()
                 if solicitation.submission_deadline
                 else None,
+                "days_until_deadline": opportunity.days_until_deadline,
                 "buyer": solicitation.buyer_name,
+                "buyer_email": solicitation.buyer_email,
+                "wards": solicitation.wards,
             },
+            "dataset_briefing_context": _briefing_dataset_context(profile, opportunity),
             "computed_evidence": {
                 "current_decision_label": opportunity.label,
                 "matched_terms": opportunity.matched_terms,
@@ -700,6 +801,8 @@ def _structured_prompt(profile: BusinessProfile, opportunity: EvaluatedOpportuni
                 "rejection_reasons": opportunity.rejection_reasons,
                 "days_until_deadline": opportunity.days_until_deadline,
                 "historical": opportunity.historical.to_dict(),
+                "rag_evidence": opportunity.rag_evidence.to_dict(),
+                "capacity_assessment": opportunity.capacity_assessment.to_dict(),
             },
             "schema_fields": {
                 "services": "service requirements explicitly implied by the solicitation",
@@ -718,10 +821,9 @@ def _structured_prompt(profile: BusinessProfile, opportunity: EvaluatedOpportuni
                 "owner_brief": {
                     "owner_summary": "one or two owner-facing sentences explaining the opportunity",
                     "fit_reason": (
-                        "2-4 plain-English sentences explaining why this exact business profile is a fit. "
-                        "Mention matched services, relevant capacity, historical award evidence, and any caveat "
-                        "that still needs owner review. This should help a non-procurement owner understand the "
-                        "fit in under 10 seconds."
+                        "2-4 plain-English sentences explaining why this exact listing is worth or not worth "
+                        "owner time. Ground it in the solicitation scope, buyer/division, matched services, "
+                        "capacity/deadline, and historical analogs. Avoid profile boilerplate."
                     ),
                     "blockers": "explicit blockers or risks the owner must resolve before pursuing",
                     "required_documents": "documents likely needed for the packet",
@@ -736,6 +838,46 @@ def _structured_prompt(profile: BusinessProfile, opportunity: EvaluatedOpportuni
             },
         }
     )
+
+
+def _briefing_dataset_context(
+    profile: BusinessProfile,
+    opportunity: EvaluatedOpportunity,
+) -> dict[str, Any]:
+    solicitation = opportunity.solicitation
+    rag = opportunity.rag_evidence
+    analogs = [
+        {
+            "document_number": _short_text(analog.get("document_number"), limit=60),
+            "supplier": _short_text(analog.get("supplier"), limit=90),
+            "division": _short_text(analog.get("division"), limit=90),
+            "award_value": float(analog.get("award_value") or 0.0),
+            "matched_terms": _string_list(analog.get("matched_terms"), limit=5),
+            "why_it_matters": _short_text(analog.get("why_it_matters"), limit=180),
+        }
+        for analog in rag.analogs[:3]
+        if isinstance(analog, dict)
+    ]
+    return {
+        "document_number": solicitation.document_number,
+        "buyer_context": _buyer_context(solicitation),
+        "category": solicitation.category,
+        "procurement_type": solicitation.solicitation_type,
+        "scope_excerpt": _scope_excerpt(solicitation.description, limit=360),
+        "profile_lane": profile.label,
+        "matched_services": opportunity.matched_terms[:8],
+        "missing_or_uncertain_items": opportunity.missing_requirements[:6],
+        "decision_reasons": opportunity.reasons[:6],
+        "deadline": solicitation.submission_deadline.isoformat()
+        if solicitation.submission_deadline
+        else None,
+        "days_until_deadline": opportunity.days_until_deadline,
+        "historical_award_count": opportunity.historical.similar_count,
+        "historical_award_median": opportunity.historical.award_median,
+        "historical_accessibility": opportunity.historical.accessibility,
+        "historical_analogs": analogs,
+        "capacity": opportunity.capacity_assessment.to_dict(),
+    }
 
 
 def _validate_extraction(payload: dict[str, Any], source: str) -> RequirementExtraction:

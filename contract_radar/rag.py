@@ -19,6 +19,13 @@ def attach_rag_evidence(
 ) -> list[EvaluatedOpportunity]:
     retriever = AwardRetriever(profile, awards)
     for opportunity in opportunities:
+        if opportunity.label == "Skip":
+            opportunity.rag_evidence = RAGEvidence(
+                source="historical_award_rag",
+                mode="skipped_by_bid_gates",
+                evidence=["Skipped by deterministic bid gates before historical RAG retrieval."],
+            )
+            continue
         opportunity.rag_evidence = retriever.retrieve(opportunity.solicitation, top_k=top_k)
         _attach_rag_to_trace(opportunity)
     return opportunities

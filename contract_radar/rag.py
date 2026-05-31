@@ -16,8 +16,9 @@ def attach_rag_evidence(
     opportunities: list[EvaluatedOpportunity],
     awards: list[AwardRecord],
     top_k: int = DEFAULT_TOP_K,
+    retriever: "AwardRetriever | None" = None,
 ) -> list[EvaluatedOpportunity]:
-    retriever = AwardRetriever(profile, awards)
+    retriever = retriever or AwardRetriever(profile, awards)
     for opportunity in opportunities:
         if opportunity.label == "Skip":
             opportunity.rag_evidence = RAGEvidence(

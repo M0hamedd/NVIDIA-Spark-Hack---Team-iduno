@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import hashlib
+import copy
+import os
 import time
 from datetime import date
 from threading import Lock
 from typing import Any
 
+from contract_radar import config
 from contract_radar.models import EvaluatedOpportunity, PipelineMetrics
 from contract_radar.profiles import profile_from_payload, supported_profiles
 
@@ -14,6 +17,9 @@ class ContractRadarService:
     def __init__(self) -> None:
         self._lock = Lock()
         self._last_scan: dict[str, Any] | None = None
+        self._scan_result_cache: dict[str, dict[str, Any]] = {}
+        self._data_bundle_cache: dict[str, Any] = {}
+        self._rag_retriever_cache: dict[str, Any] = {}
         self._market_model_cache: dict[str, Any] = {}
 
     def health(self) -> dict[str, Any]:
@@ -78,15 +84,31 @@ class ContractRadarService:
         from contract_radar.matcher import evaluate_opportunities, normalize_priority_mode
         from contract_radar.nemotron import enrich_top_opportunities_with_stats
         from contract_radar.portfolio import cuopt_status, optimize_bid_portfolio
+        from contract_radar.precomputed import load_precomputed_scan
         from contract_radar.rag import attach_rag_evidence
         from contract_radar.ranker import apply_market_intelligence
         from contract_radar.revenue_simulation import attach_revenue_simulations
 
         start = time.perf_counter()
-        profile = profile_from_payload(payload or {})
+        payload = payload or {}
+        profile = profile_from_payload(payload)
         today = _payload_date(payload) or date.today()
-        priority_mode = normalize_priority_mode((payload or {}).get("priority_mode"))
-        data_bundle = load_procurement_data(refresh=bool((payload or {}).get("refresh")))
+        priority_mode = normalize_priority_mode(payload.get("priority_mode"))
+        cache_key = _scan_result_cache_key(profile, priority_mode, today, payload)
+        if not bool(payload.get("refresh")):
+            cached_scan = self._cached_scan_result(cache_key)
+            if cached_scan is not None:
+                with self._lock:
+                    self._last_scan = copy.deepcopy(cached_scan)
+                return cached_scan
+            precomputed = load_precomputed_scan(profile.profile_id, priority_mode, today)
+            if precomputed is not None:
+                with self._lock:
+                    if _scan_result_cache_enabled():
+                        self._scan_result_cache[cache_key] = copy.deepcopy(precomputed)
+                    self._last_scan = precomputed
+                return precomputed
+        data_bundle = self._data_bundle(refresh=bool(payload.get("refresh")))
         historical_summary = summarize_past_opportunities(profile, data_bundle.awards).to_dict()
         evaluated = evaluate_opportunities(
             profile,
@@ -95,7 +117,12 @@ class ContractRadarService:
             today=today,
             priority_mode=priority_mode,
         )
-        evaluated = attach_rag_evidence(profile, evaluated, data_bundle.awards)
+        evaluated = attach_rag_evidence(
+            profile,
+            evaluated,
+            data_bundle.awards,
+            retriever=self._rag_retriever_for(profile, data_bundle.awards),
+        )
         extraction_candidates = [
             item for item in evaluated if item.label != "Skip"
         ][:40]
@@ -144,6 +171,8 @@ class ContractRadarService:
         }
         with self._lock:
             self._last_scan = result
+            if _scan_result_cache_enabled():
+                self._scan_result_cache[cache_key] = copy.deepcopy(result)
         return result
 
     def simulate(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -188,11 +217,143 @@ class ContractRadarService:
             self._market_model_cache[key] = trained
         return trained
 
+    def _data_bundle(self, refresh: bool) -> Any:
+        from contract_radar.data import load_procurement_data
+
+        if refresh:
+            bundle = load_procurement_data(refresh=True)
+            with self._lock:
+                self._data_bundle_cache[_data_bundle_cache_key()] = bundle
+            return bundle
+
+        key = _data_bundle_cache_key()
+        with self._lock:
+            cached = self._data_bundle_cache.get(key)
+        if cached is not None:
+            return cached
+
+        bundle = load_procurement_data(refresh=False)
+        with self._lock:
+            self._data_bundle_cache[key] = bundle
+        return bundle
+
+    def _rag_retriever_for(self, profile: Any, awards: list[Any]) -> Any:
+        from contract_radar.rag import AwardRetriever
+
+        key = _rag_retriever_cache_key(profile, awards)
+        with self._lock:
+            cached = self._rag_retriever_cache.get(key)
+        if cached is not None:
+            return cached
+
+        retriever = AwardRetriever(profile, awards)
+        with self._lock:
+            self._rag_retriever_cache[key] = retriever
+        return retriever
+
+    def _cached_scan_result(self, cache_key: str) -> dict[str, Any] | None:
+        if not _scan_result_cache_enabled():
+            return None
+        with self._lock:
+            cached = self._scan_result_cache.get(cache_key)
+        if cached is None:
+            return None
+        return _with_scan_cache_hit(cached)
+
 
 def _payload_date(payload: dict[str, Any] | None) -> date | None:
     from contract_radar.models import parse_date
 
     return parse_date((payload or {}).get("as_of"))
+
+
+def _scan_result_cache_enabled() -> bool:
+    return not config.env_flag(config.DISABLE_SCAN_RESULT_CACHE_ENV)
+
+
+def _scan_result_cache_key(
+    profile: Any,
+    priority_mode: str,
+    today: date,
+    payload: dict[str, Any],
+) -> str:
+    key_payload = {
+        "profile_id": getattr(profile, "profile_id", ""),
+        "profile_fingerprint": _profile_fingerprint(profile),
+        "priority_mode": priority_mode,
+        "as_of": today.isoformat(),
+        "offline": config.env_flag(config.OFFLINE_ENV),
+        "row_limit": config.row_limit(),
+        "nim_disabled": os.getenv("CONTRACT_RADAR_DISABLE_NEMOTRON", ""),
+        "nim_base_url": os.getenv("NIM_BASE_URL", ""),
+        "nim_model": os.getenv("NIM_MODEL", ""),
+        "nim_shortlist_limit": os.getenv("CONTRACT_RADAR_NIM_SHORTLIST_LIMIT", ""),
+        "precomputed": config.env_flag(config.USE_PRECOMPUTED_SCAN_ENV),
+    }
+    digest = hashlib.sha256(repr(sorted(key_payload.items())).encode("utf-8")).hexdigest()[:20]
+    return f"scan:{digest}"
+
+
+def _data_bundle_cache_key() -> str:
+    key_payload = {
+        "offline": config.env_flag(config.OFFLINE_ENV),
+        "cache_dir": str(config.CACHE_DIR),
+        "row_limit": config.row_limit(),
+    }
+    digest = hashlib.sha256(repr(sorted(key_payload.items())).encode("utf-8")).hexdigest()[:20]
+    return f"data:{digest}"
+
+
+def _rag_retriever_cache_key(profile: Any, awards: list[Any]) -> str:
+    digest = hashlib.sha256()
+    for award in awards[:20] + awards[-20:]:
+        digest.update(str(getattr(award, "document_number", "")).encode("utf-8"))
+        digest.update(str(getattr(award, "supplier", "")).encode("utf-8"))
+        digest.update(str(getattr(award, "award_value", "")).encode("utf-8"))
+    key_payload = {
+        "industry_lane": getattr(profile, "profile_id", ""),
+        "business_type": getattr(profile, "business_type", ""),
+        "skills": tuple(getattr(profile, "skills", []) or []),
+        "good_fit_examples": tuple(getattr(profile, "good_fit_examples", []) or []),
+        "bad_fit_examples": tuple(getattr(profile, "bad_fit_examples", []) or []),
+        "missing_capabilities": tuple(getattr(profile, "missing_capabilities", []) or []),
+        "top_divisions": tuple(getattr(profile, "top_divisions", []) or []),
+        "awards": f"{len(awards)}:{digest.hexdigest()[:16]}",
+    }
+    key_digest = hashlib.sha256(repr(sorted(key_payload.items())).encode("utf-8")).hexdigest()[:20]
+    return f"rag:{key_digest}"
+
+
+def _profile_fingerprint(profile: Any) -> str:
+    payload = profile.to_dict() if hasattr(profile, "to_dict") else {
+        name: getattr(profile, name, "")
+        for name in (
+            "profile_id",
+            "label",
+            "name",
+            "business_type",
+            "team_size",
+            "max_contract_value",
+            "max_sites_per_day",
+            "active_pursuit_count",
+            "max_active_pursuits",
+            "skills",
+            "ready_documents",
+            "missing_capabilities",
+            "top_divisions",
+        )
+    }
+    return hashlib.sha256(repr(sorted(payload.items())).encode("utf-8")).hexdigest()[:20]
+
+
+def _with_scan_cache_hit(cached: dict[str, Any]) -> dict[str, Any]:
+    result = copy.deepcopy(cached)
+    metrics = result.setdefault("metrics", {})
+    metrics["scan_result_cache_hit"] = True
+    warnings = metrics.setdefault("warnings", [])
+    if isinstance(warnings, list):
+        warnings.append("In-process scan result cache hit; reused the previous matching scan.")
+    return result
 
 
 def _metrics(

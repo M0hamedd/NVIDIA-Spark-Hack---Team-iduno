@@ -170,6 +170,23 @@ class NemotronFallbackTests(unittest.TestCase):
         self.assertEqual(enriched[0].requirements.source, "local_nim")
         self.assertEqual([call.kwargs["with_schema"] for call in chat.mock_calls], [True, False])
 
+    def test_local_nim_listing_extraction_is_cached_across_profile_variants(self) -> None:
+        first_profile = BusinessProfile(name="Harbourfront Civil Works Ltd.")
+        second_profile = BusinessProfile(name="Variant Civil Works", max_contract_value=900000)
+        response = _nim_response()
+
+        with patch("contract_radar.nemotron._nim_preflight", return_value={"available": True, "reason": "test"}):
+            with patch("contract_radar.nemotron._chat_completion", return_value=__import__("json").dumps(response)) as chat:
+                first, first_mode = enrich_top_opportunities(first_profile, [_opportunity()])
+                second, second_mode = enrich_top_opportunities(second_profile, [_opportunity()])
+
+        self.assertEqual(first_mode, "local_nim")
+        self.assertEqual(second_mode, "local_nim")
+        self.assertEqual(chat.call_count, 1)
+        self.assertIn("RFQ-123 is a RFT from Transportation Services", first[0].opportunity_brief.fit_reason)
+        self.assertIn("RFQ-123 is a RFT from Transportation Services", second[0].opportunity_brief.fit_reason)
+        self.assertEqual(second[0].opportunity_brief.source, "local_nim")
+
     def test_request_failure_does_not_retry_as_schema_fallback(self) -> None:
         profile = BusinessProfile()
 
@@ -193,9 +210,11 @@ class NemotronFallbackTests(unittest.TestCase):
                 "contract_radar.nemotron._chat_completion",
                 side_effect=[__import__("json").dumps(response), RuntimeError("local NIM unavailable")],
             ):
+                second_opportunity = _opportunity()
+                second_opportunity.solicitation.document_number = "RFQ-456"
                 enriched, mode, stats = enrich_top_opportunities_with_stats(
                     profile,
-                    [_opportunity(), _opportunity()],
+                    [_opportunity(), second_opportunity],
                 )
 
         self.assertEqual(mode, "deterministic_fallback")

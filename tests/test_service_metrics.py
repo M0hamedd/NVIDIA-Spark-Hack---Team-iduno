@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import os
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
+from contract_radar import config
 from contract_radar.nemotron import reset_nim_preflight_cache
+from contract_radar.precomputed import write_precomputed_scan
 from contract_radar.service import ContractRadarService
 
 
@@ -71,6 +75,84 @@ class ServiceMetricsTests(unittest.TestCase):
         self.assertIn("value_model_mode", metrics)
         self.assertIn("rag_mode", metrics)
         self.assertIn("cuopt_mode", metrics)
+
+    def test_scan_can_replay_precomputed_result(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch.object(config, "PRECOMPUTED_DIR", Path(tmpdir)):
+                write_precomputed_scan(
+                    scan_result={
+                        "business_profile": {"profile_id": "road_civil_infrastructure"},
+                        "priority_mode": "best_win_chance",
+                        "metrics": {"runtime_ms": 123, "warnings": []},
+                        "top_opportunities": [],
+                        "watchlist": [],
+                        "skipped": [],
+                        "all_evaluated": [],
+                    },
+                    profile_id="road_civil_infrastructure",
+                    priority_mode="best_win_chance",
+                    as_of=None,
+                )
+                with patch.dict(os.environ, {"CONTRACT_RADAR_USE_PRECOMPUTED_SCAN": "1"}, clear=False):
+                    with patch("contract_radar.data.load_procurement_data") as load_data:
+                        scan = ContractRadarService().scan(
+                            {
+                                "profile_id": "road_civil_infrastructure",
+                                "priority_mode": "best_win_chance",
+                            }
+                        )
+
+                load_data.assert_not_called()
+                self.assertTrue(scan["metrics"]["precomputed_scan_replay"])
+                self.assertIn("Precomputed scan replay", scan["metrics"]["warnings"][0])
+
+    def test_scan_result_is_cached_after_first_run(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "CONTRACT_RADAR_OFFLINE": "1",
+                "CONTRACT_RADAR_DISABLE_NEMOTRON": "1",
+            },
+            clear=False,
+        ):
+            service = ContractRadarService()
+            first = service.scan({"profile_id": "road_civil_infrastructure"})
+            with patch("contract_radar.data.load_procurement_data") as load_data:
+                second = service.scan({"profile_id": "road_civil_infrastructure"})
+
+        load_data.assert_not_called()
+        self.assertFalse(first["metrics"].get("scan_result_cache_hit", False))
+        self.assertTrue(second["metrics"]["scan_result_cache_hit"])
+        self.assertEqual(first["business_profile"]["profile_id"], second["business_profile"]["profile_id"])
+
+    def test_profile_variant_reuses_artifacts_without_exact_result_cache(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "CONTRACT_RADAR_OFFLINE": "1",
+                "CONTRACT_RADAR_DISABLE_NEMOTRON": "1",
+            },
+            clear=False,
+        ):
+            service = ContractRadarService()
+            first = service.scan({"profile_id": "road_civil_infrastructure"})
+            with patch("contract_radar.data.load_procurement_data") as load_data:
+                second = service.scan(
+                    {
+                        "profile_id": "road_civil_infrastructure",
+                        "business_profile": {
+                            "profile_id": "road_civil_infrastructure",
+                            "name": "Variant Civil Works",
+                            "max_contract_value": 900000,
+                            "active_pursuit_count": 0,
+                        },
+                    }
+                )
+
+        load_data.assert_not_called()
+        self.assertFalse(first["metrics"].get("scan_result_cache_hit", False))
+        self.assertFalse(second["metrics"].get("scan_result_cache_hit", False))
+        self.assertEqual(second["business_profile"]["name"], "Variant Civil Works")
 
 
 if __name__ == "__main__":

@@ -90,6 +90,33 @@ python scripts/smoke_api.py --base-url http://127.0.0.1:8080
 
 The smoke command validates `/api/health`, `/api/scan`, `/api/simulate`, and `/api/approve` against the running app. Use `--help` to see optional flags, including `--refresh` for a live Toronto Open Data refresh when internet access is available. Demo scans refuse bundled sample solicitations unless `CONTRACT_RADAR_ALLOW_SAMPLE_DATA=1` is explicitly set for local tests.
 
+To precompute demo scans and replay them instantly from checked-in JSON, run this on Spark after Nemotron is ready:
+
+```bash
+python3 scripts/precompute_scan_cache.py --offline
+git add data/precomputed contract_radar/precomputed.py scripts/precompute_scan_cache.py README.md
+git commit -m "Add precomputed Spark scan cache"
+git push
+```
+
+Then run the app with replay enabled:
+
+```bash
+export CONTRACT_RADAR_OFFLINE=1
+export CONTRACT_RADAR_USE_PRECOMPUTED_SCAN=1
+python3 app.py --without-nemotron
+```
+
+The replay path returns the saved scan result, including any Spark-generated Nemotron briefs, before rebuilding RAG, market scoring, or local model output. Leave `CONTRACT_RADAR_USE_PRECOMPUTED_SCAN` unset when you want to prove the full live pipeline.
+
+During a normal app run, scans use a two-layer cache:
+
+- Shared artifact cache: data bundles and historical RAG retrievers are reused across same-lane profile variants.
+- Listing extraction cache: local Nemotron requirement extraction is keyed by the solicitation itself, so the app can reuse the same listing summary across companies.
+- Exact result cache: identical profile/date/priority scans return immediately unless `refresh=true` is requested.
+
+For example, a cold same-lane scan may do the full local pipeline, a different company in the same lane can reuse shared artifacts while applying its own capacity/profile gates, and an exact repeat returns from memory in milliseconds.
+
 To show the deterministic judging/performance proof without opening the UI:
 
 ```powershell
@@ -163,6 +190,9 @@ $env:CONTRACT_RADAR_NEMOTRON_MODEL_FILE="Nemotron-3-Nano-30B-A3B-UD-Q4_K_XL.gguf
 - `CONTRACT_RADAR_OFFLINE`: set to `1` to use cached Toronto Open Data without a live fetch for a stable demo.
 - `CONTRACT_RADAR_ALLOW_SAMPLE_DATA`: set to `1` only for local tests that intentionally exercise bundled fixtures. Keep unset or `0` for demos.
 - `CONTRACT_RADAR_DISABLE_NEMOTRON`: set to `1` when running local deterministic tests; `python app.py --without-nemotron` sets this automatically.
+- `CONTRACT_RADAR_USE_PRECOMPUTED_SCAN`: set to `1` to replay checked-in `data/precomputed/scans/*.json` scan results instead of rerunning the full pipeline.
+- `CONTRACT_RADAR_PRECOMPUTED_DIR`: directory for precomputed scan replay files. Defaults to `data/precomputed`.
+- `CONTRACT_RADAR_DISABLE_SCAN_RESULT_CACHE`: set to `1` to disable the in-process cache that reuses identical scan results after the first run.
 - `NIM_BASE_URL`: local NVIDIA NIM/OpenAI-compatible endpoint used for structured requirement extraction on shortlisted contracts.
 - `NIM_MODEL`: local Nemotron model identifier served by NIM.
 - `NIM_API_KEY`: optional key if the local NIM endpoint requires one.

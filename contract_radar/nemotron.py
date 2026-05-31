@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -19,6 +20,7 @@ NIM_PREFLIGHT_TIMEOUT_SECONDS = 2.0
 NIM_CHAT_TIMEOUT_SECONDS = 45.0
 NIM_PREFLIGHT_CACHE_SECONDS = 30.0
 _NIM_PREFLIGHT_CACHE: dict[str, dict[str, Any]] = {}
+_NIM_LISTING_EXTRACTION_CACHE: dict[str, tuple[RequirementExtraction, OpportunityBrief]] = {}
 
 
 class SchemaRejectedError(RuntimeError):
@@ -251,20 +253,22 @@ def _extract_with_nim(
     profile: BusinessProfile,
     opportunity: EvaluatedOpportunity,
 ) -> tuple[RequirementExtraction, OpportunityBrief]:
-    prompt = _structured_prompt(profile, opportunity)
+    cache_key = _listing_extraction_cache_key(opportunity)
+    cached = _NIM_LISTING_EXTRACTION_CACHE.get(cache_key)
+    if cached is not None:
+        extraction, brief = cached
+        return extraction, _with_dataset_grounding(profile, opportunity, extraction, brief)
+
+    prompt = _structured_prompt(opportunity)
     try:
         content = _chat_completion(prompt, with_schema=True)
     except SchemaRejectedError:
         content = _chat_completion(prompt, with_schema=False)
     payload = _extract_json_object(content)
     extraction = _validate_extraction(payload, source="local_nim")
-    brief = _with_dataset_grounding(
-        profile,
-        opportunity,
-        extraction,
-        _validate_brief(payload, source="local_nim"),
-    )
-    return extraction, brief
+    brief = _validate_brief(payload, source="local_nim")
+    _NIM_LISTING_EXTRACTION_CACHE[cache_key] = (extraction, brief)
+    return extraction, _with_dataset_grounding(profile, opportunity, extraction, brief)
 
 
 def _chat_completion(prompt: str, with_schema: bool) -> str:
@@ -752,32 +756,23 @@ def _fallback_email_draft(
     )
 
 
-def _structured_prompt(profile: BusinessProfile, opportunity: EvaluatedOpportunity) -> str:
+def _structured_prompt(opportunity: EvaluatedOpportunity) -> str:
     solicitation = opportunity.solicitation
     return json.dumps(
         {
             "task": (
-                "Extract structured procurement requirements. Return one JSON object matching the schema. "
-                "Do not invent requirements. Empty arrays are allowed. Write a custom brief for this exact "
-                "listing, not a reusable profile blurb."
+                "Extract structured procurement requirements from one public procurement listing. "
+                "Return one JSON object matching the schema. Do not invent requirements. Empty arrays "
+                "are allowed. This is listing-level extraction only; do not judge whether a specific "
+                "business should bid."
             ),
             "writing_rules": [
-                "Do not start fit_reason with the business name.",
+                "Summarize only what the solicitation appears to require.",
+                "Do not mention a business name, team size, capacity, bid/no-bid decision, or profile fit.",
                 "Do not use repeated boilerplate such as 'already has capability signals' or 'has matching capacity'.",
-                "Mention at least one concrete detail from the solicitation description.",
+                "Mention concrete details from the solicitation description.",
                 "Mention the buyer/division, procurement type, deadline or document number when available.",
-                "Use historical/RAG evidence only if it is present in the supplied data.",
             ],
-            "business_context": {
-                "name": profile.name,
-                "business_type": profile.business_type,
-                "team_size": profile.team_size,
-                "max_contract_value": profile.max_contract_value,
-                "max_sites_per_day": profile.max_sites_per_day,
-                "skills": profile.skills,
-                "ready_documents": profile.ready_documents,
-                "known_missing_capabilities": profile.missing_capabilities,
-            },
             "solicitation": {
                 "document_number": solicitation.document_number,
                 "type": solicitation.solicitation_type,
@@ -791,18 +786,6 @@ def _structured_prompt(profile: BusinessProfile, opportunity: EvaluatedOpportuni
                 "buyer": solicitation.buyer_name,
                 "buyer_email": solicitation.buyer_email,
                 "wards": solicitation.wards,
-            },
-            "dataset_briefing_context": _briefing_dataset_context(profile, opportunity),
-            "computed_evidence": {
-                "current_decision_label": opportunity.label,
-                "matched_terms": opportunity.matched_terms,
-                "missing_requirements": opportunity.missing_requirements,
-                "reasons": opportunity.reasons,
-                "rejection_reasons": opportunity.rejection_reasons,
-                "days_until_deadline": opportunity.days_until_deadline,
-                "historical": opportunity.historical.to_dict(),
-                "rag_evidence": opportunity.rag_evidence.to_dict(),
-                "capacity_assessment": opportunity.capacity_assessment.to_dict(),
             },
             "schema_fields": {
                 "services": "service requirements explicitly implied by the solicitation",
@@ -819,20 +802,18 @@ def _structured_prompt(profile: BusinessProfile, opportunity: EvaluatedOpportuni
                     "the solicitation description, avoid sales language, and use only supplied evidence"
                 ),
                 "owner_brief": {
-                    "owner_summary": "one or two owner-facing sentences explaining the opportunity",
+                    "owner_summary": "one or two owner-facing sentences explaining what the listing requires",
                     "fit_reason": (
-                        "2-4 plain-English sentences explaining why this exact listing is worth or not worth "
-                        "owner time. Ground it in the solicitation scope, buyer/division, matched services, "
-                        "capacity/deadline, and historical analogs. Avoid profile boilerplate."
+                        "Leave this blank or restate listing-level scope only. Do not evaluate business fit."
                     ),
-                    "blockers": "explicit blockers or risks the owner must resolve before pursuing",
-                    "required_documents": "documents likely needed for the packet",
-                    "missing_items": "items the profile may not currently have ready",
+                    "blockers": "explicit listing requirements or risks any bidder should check",
+                    "required_documents": "documents likely requested by the listing",
+                    "missing_items": "unknown listing details that need confirmation",
                     "clarification_questions": "buyer questions grounded in ambiguity from the solicitation",
                     "next_steps": "concrete owner workflow steps before submission",
                     "buyer_email_draft": (
-                        "short professional email draft to the listed buyer; do not claim submission, "
-                        "approval, or qualifications not supplied"
+                        "short professional email draft asking about listing requirements; do not claim "
+                        "submission, approval, or qualifications"
                     ),
                 },
             },
@@ -1247,10 +1228,30 @@ def _open_nim_circuit() -> None:
 
 def reset_nim_preflight_cache() -> None:
     _NIM_PREFLIGHT_CACHE.clear()
+    _NIM_LISTING_EXTRACTION_CACHE.clear()
 
 
 def _base_url() -> str:
     return os.environ.get("NIM_BASE_URL", DEFAULT_BASE_URL).rstrip("/")
+
+
+def _listing_extraction_cache_key(opportunity: EvaluatedOpportunity) -> str:
+    solicitation = opportunity.solicitation
+    payload = {
+        "base_url": _base_url(),
+        "model": os.environ.get("NIM_MODEL", DEFAULT_MODEL),
+        "document_number": solicitation.document_number,
+        "type": solicitation.solicitation_type,
+        "category": solicitation.category,
+        "description": solicitation.description,
+        "division": solicitation.division,
+        "deadline": solicitation.submission_deadline.isoformat()
+        if solicitation.submission_deadline
+        else "",
+        "buyer": solicitation.buyer_name,
+        "wards": solicitation.wards,
+    }
+    return hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
 
 
 def _join_or_default(values: list[str], default: str) -> str:

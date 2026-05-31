@@ -275,17 +275,20 @@ class ContractRadarService:
         payload = payload or {}
         approved = bool(payload.get("approved"))
         opportunity_id = str(payload.get("opportunity_id") or "")
-        scan_result = self._last_scan or self.scan(payload)
-        opportunities = [
-            item
-            for item in scan_result.get("all_evaluated", [])
-            if isinstance(item, dict) and item.get("label") != "Skip"
-        ]
+        scan_result = self._last_scan
+        opportunities = _approval_opportunities(scan_result or {})
         selected = _find_opportunity(opportunities, opportunity_id)
-        if selected is None and not opportunity_id and opportunities:
-            selected = opportunities[0]
         if selected is None:
-            raise ValueError("No non-skipped opportunity is available for approval.")
+            scan_result = self.scan(payload)
+            opportunities = _approval_opportunities(scan_result)
+            selected = _find_opportunity(opportunities, opportunity_id)
+        if selected is None:
+            if opportunity_id:
+                raise ValueError(
+                    f"Selected listing {opportunity_id} is no longer available for bid notes. "
+                    "Refresh matches and choose a current recommended listing."
+                )
+            raise ValueError("No recommended listing is available for bid notes.")
         packet = create_approval_packet(scan_result["business_profile"], selected, approved)
         return {"packet": packet.to_dict(), "approved": approved}
 
@@ -630,6 +633,27 @@ def _find_opportunity(opportunities: list[dict[str, Any]], opportunity_id: str) 
         if solicitation.get("document_number") == opportunity_id:
             return item
     return None
+
+
+def _approval_opportunities(scan_result: dict[str, Any]) -> list[dict[str, Any]]:
+    groups = [
+        scan_result.get("top_opportunities") or [],
+        scan_result.get("watchlist") or [],
+        scan_result.get("all_evaluated") or [],
+    ]
+    opportunities: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in [candidate for group in groups for candidate in group]:
+        if not isinstance(item, dict) or item.get("label") == "Skip":
+            continue
+        solicitation = item.get("solicitation") or {}
+        document_number = str(solicitation.get("document_number") or "")
+        key = document_number or repr(item)
+        if key in seen:
+            continue
+        seen.add(key)
+        opportunities.append(item)
+    return opportunities
 
 
 def _prioritized_skips(evaluated: list[EvaluatedOpportunity]) -> list[EvaluatedOpportunity]:

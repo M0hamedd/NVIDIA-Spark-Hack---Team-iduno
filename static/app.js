@@ -274,6 +274,8 @@ async function approveDraft() {
     const result = await apiPost("/api/approve", {
       profile_id: profile.profile_id,
       business_profile: profile,
+      priority_mode: getPriorityMode(),
+      as_of: selectedDemoMonth().value,
       approved: true,
       opportunity_id: state.selectedOpportunityId
     });

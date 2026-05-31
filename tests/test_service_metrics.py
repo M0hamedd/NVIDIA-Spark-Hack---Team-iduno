@@ -203,6 +203,66 @@ class ServiceMetricsTests(unittest.TestCase):
         self.assertLessEqual(len(captured_document_numbers), 13)
         self.assertFalse(set(captured_document_numbers) & skipped_document_numbers)
 
+    def test_approve_falls_back_to_payload_scan_when_last_scan_is_stale(self) -> None:
+        service = ContractRadarService()
+        service._last_scan = _approval_scan("other-profile", "OTHER-1")
+        selected_scan = _approval_scan("road_civil_infrastructure", "RFQ-SELECTED")
+
+        with patch.object(service, "scan", return_value=selected_scan) as scan:
+            result = service.approve(
+                {
+                    "profile_id": "road_civil_infrastructure",
+                    "priority_mode": "best_win_chance",
+                    "as_of": "2026-05-30",
+                    "approved": True,
+                    "opportunity_id": "RFQ-SELECTED",
+                }
+            )
+
+        scan.assert_called_once()
+        self.assertEqual(result["packet"]["opportunity_id"], "RFQ-SELECTED")
+
+    def test_approve_can_use_displayed_top_opportunity_without_all_evaluated(self) -> None:
+        service = ContractRadarService()
+        service._last_scan = _approval_scan("road_civil_infrastructure", "RFQ-TOP")
+        service._last_scan["all_evaluated"] = []
+
+        with patch.object(service, "scan") as scan:
+            result = service.approve({"approved": True, "opportunity_id": "RFQ-TOP"})
+
+        scan.assert_not_called()
+        self.assertEqual(result["packet"]["opportunity_id"], "RFQ-TOP")
+
+
+def _approval_scan(profile_id: str, document_number: str) -> dict:
+    return {
+        "business_profile": {
+            "profile_id": profile_id,
+            "name": "Harbourfront Civil Works Ltd.",
+        },
+        "top_opportunities": [_approval_opportunity(document_number)],
+        "watchlist": [],
+        "skipped": [],
+        "all_evaluated": [_approval_opportunity(document_number)],
+    }
+
+
+def _approval_opportunity(document_number: str) -> dict:
+    return {
+        "label": "Pursue",
+        "matched_terms": ["road repairs"],
+        "missing_requirements": [],
+        "solicitation": {
+            "document_number": document_number,
+            "description": "Road and sidewalk repair",
+            "submission_deadline": "2026-06-18",
+            "buyer_name": "City Buyer",
+            "buyer_email": "buyer@toronto.ca",
+            "buyer_phone": "416-555-0100",
+            "division": "Transportation Services",
+        },
+    }
+
 
 if __name__ == "__main__":
     unittest.main()

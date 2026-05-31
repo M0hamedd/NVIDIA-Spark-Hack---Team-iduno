@@ -58,8 +58,19 @@ class ServiceMetricsTests(unittest.TestCase):
         self.assertGreater(len(scan["insight_scorecard"]["false_positive_categories"]), 0)
         first = (scan["top_opportunities"] or scan["watchlist"] or scan["all_evaluated"])[0]
         self.assertEqual(first["market_fit"]["source"], "sklearn_award_history")
-        self.assertEqual(first["bid_recommendation"]["source"], "historical_contract_type_average")
+        self.assertEqual(first["bid_recommendation"]["source"], "trained_award_value_model")
         self.assertGreater(first["bid_recommendation"]["recommended_bid"], 0)
+        self.assertGreater(first["predicted_bid"], 0)
+        self.assertGreaterEqual(first["fit_probability"], 0)
+        self.assertIn("rag_evidence", first)
+        self.assertGreater(len(first["rag_evidence"]["analogs"]), 0)
+        self.assertIn("simulation_summary", first)
+        self.assertGreater(first["simulation_summary"]["iterations"], 0)
+        self.assertIn("portfolio_decision", first)
+        self.assertIn(first["portfolio_decision"]["decision"], {"Pursue Now", "Pursue If Capacity Frees", "Review", "Monitor", "Pass"})
+        self.assertIn("value_model_mode", metrics)
+        self.assertIn("rag_mode", metrics)
+        self.assertIn("cuopt_mode", metrics)
 
 
 if __name__ == "__main__":

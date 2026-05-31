@@ -14,7 +14,7 @@ from contract_radar.models import BusinessProfile, EvaluatedOpportunity, Opportu
 
 DEFAULT_BASE_URL = "http://localhost:8000/v1"
 DEFAULT_MODEL = "nvidia/llama-3.1-nemotron-70b-instruct"
-TOP_CANDIDATE_LIMIT = 3
+TOP_CANDIDATE_LIMIT = int(os.environ.get("CONTRACT_RADAR_NIM_SHORTLIST_LIMIT", "24") or "24")
 NIM_PREFLIGHT_TIMEOUT_SECONDS = 0.2
 NIM_PREFLIGHT_CACHE_SECONDS = 30.0
 _NIM_PREFLIGHT_CACHE: dict[str, dict[str, Any]] = {}
@@ -35,6 +35,9 @@ REQUIREMENT_SCHEMA: dict[str, Any] = {
         "capacity_flags": {"type": "array", "items": {"type": "string"}},
         "procurement_type": {"type": "string"},
         "deadline_risk": {"type": "string"},
+        "delivery_complexity": {"type": "string"},
+        "scope_size": {"type": "string"},
+        "disqualifying_requirements": {"type": "array", "items": {"type": "string"}},
         "next_action": {"type": "string"},
         "summary": {"type": "string"},
         "owner_brief": {
@@ -271,7 +274,7 @@ def _chat_completion(prompt: str, with_schema: bool) -> str:
             {"role": "user", "content": prompt},
         ],
         "temperature": 0,
-        "max_tokens": 1100,
+        "max_tokens": 1500,
     }
     if with_schema:
         payload["response_format"] = {
@@ -345,7 +348,7 @@ def _with_owner_brief_rationale(
 
     trace = opportunity.bid_fitness_trace
     positive_signals = list(trace.positive_signals)
-    fit_reason = _short_text(brief.fit_reason, limit=180)
+    fit_reason = _short_text(brief.fit_reason, limit=420)
     if fit_reason and fit_reason not in positive_signals:
         positive_signals.insert(0, fit_reason)
 
@@ -363,8 +366,8 @@ def _brief_final_rationale(
     extraction: RequirementExtraction,
 ) -> str:
     label = opportunity.label
-    summary = _sentence_fragment(_short_text(brief.owner_summary, limit=180))
-    fit_reason = _sentence_fragment(_short_text(brief.fit_reason, limit=180))
+    summary = _sentence_fragment(_short_text(brief.owner_summary, limit=260))
+    fit_reason = _sentence_fragment(_short_text(brief.fit_reason, limit=420))
     next_step = _sentence_fragment(_short_text(
         (brief.next_steps[0] if brief.next_steps else extraction.next_action),
         limit=140,
@@ -413,6 +416,8 @@ def _fallback_extraction(profile: BusinessProfile, opportunity: EvaluatedOpportu
     risk_flags = _term_matches(text, RISK_TERMS)
     capacity_flags = _capacity_flags(profile, opportunity, risk_flags)
     deadline_risk = _deadline_risk(opportunity.days_until_deadline)
+    delivery_complexity = _delivery_complexity(opportunity, risk_flags)
+    scope_size = _scope_size(opportunity)
     next_action = _next_action(opportunity, risk_flags, capacity_flags)
     procurement_type = solicitation.solicitation_type or "Solicitation"
     summary_services = list(opportunity.matched_terms[:3]) or services
@@ -427,6 +432,9 @@ def _fallback_extraction(profile: BusinessProfile, opportunity: EvaluatedOpportu
         capacity_flags=capacity_flags,
         procurement_type=procurement_type,
         deadline_risk=deadline_risk,
+        delivery_complexity=delivery_complexity,
+        scope_size=scope_size,
+        disqualifying_requirements=list(opportunity.rejection_reasons[:5]),
         next_action=next_action,
         summary=summary,
     )
@@ -605,9 +613,28 @@ def _fit_reason(
     extraction: RequirementExtraction,
 ) -> str:
     services = extraction.services or opportunity.matched_terms
+    history = opportunity.historical
+    assessment = opportunity.capacity_assessment
+    parts: list[str] = []
     if services:
-        return f"{profile.name} has matching capability signals for {_human_join(services[:3])}."
-    return f"{profile.name} matches this opportunity through the selected {profile.label} profile."
+        parts.append(
+            f"{profile.name} already has capability signals for {_human_join(services[:4])}, "
+            "which line up with the listed scope."
+        )
+    else:
+        parts.append(f"{profile.name} matches this opportunity through the selected {profile.label} profile.")
+    if history.similar_count:
+        parts.append(
+            f"The local award comparison found {history.similar_count} similar Toronto award(s)"
+            f"{f' with a median award around ${history.award_median:,.0f}' if history.award_median else ''}, "
+            "so the recommendation is grounded in past purchasing patterns instead of keyword overlap."
+        )
+    if assessment:
+        parts.append(
+            f"Capacity check shows {assessment.pursuit_load.lower()} pursuit load, "
+            f"{assessment.response_capacity.lower()}, and {assessment.execution_capacity.lower()}."
+        )
+    return " ".join(parts)
 
 
 def _fallback_email_draft(
@@ -688,7 +715,12 @@ def _structured_prompt(profile: BusinessProfile, opportunity: EvaluatedOpportuni
                 ),
                 "owner_brief": {
                     "owner_summary": "one or two owner-facing sentences explaining the opportunity",
-                    "fit_reason": "why this profile could realistically consider the opportunity",
+                    "fit_reason": (
+                        "2-4 plain-English sentences explaining why this exact business profile is a fit. "
+                        "Mention matched services, relevant capacity, historical award evidence, and any caveat "
+                        "that still needs owner review. This should help a non-procurement owner understand the "
+                        "fit in under 10 seconds."
+                    ),
                     "blockers": "explicit blockers or risks the owner must resolve before pursuing",
                     "required_documents": "documents likely needed for the packet",
                     "missing_items": "items the profile may not currently have ready",
@@ -715,6 +747,9 @@ def _validate_extraction(payload: dict[str, Any], source: str) -> RequirementExt
         capacity_flags=_string_list(payload.get("capacity_flags")),
         procurement_type=_short_text(payload.get("procurement_type")),
         deadline_risk=_normal_deadline_risk(payload.get("deadline_risk")),
+        delivery_complexity=_short_text(payload.get("delivery_complexity"), limit=80),
+        scope_size=_short_text(payload.get("scope_size"), limit=80),
+        disqualifying_requirements=_string_list(payload.get("disqualifying_requirements")),
         next_action=_short_text(payload.get("next_action"), limit=160),
         summary=_short_text(payload.get("summary"), limit=240),
     )
@@ -725,13 +760,13 @@ def _validate_brief(payload: dict[str, Any], source: str) -> OpportunityBrief:
     required_documents = _string_list(raw_brief.get("required_documents"))
     if not required_documents:
         required_documents = _string_list(payload.get("documents"))
-    owner_summary = _short_text(raw_brief.get("owner_summary"), limit=300)
+    owner_summary = _short_text(raw_brief.get("owner_summary"), limit=420)
     if not owner_summary:
-        owner_summary = _short_text(payload.get("summary"), limit=300)
+        owner_summary = _short_text(payload.get("summary"), limit=420)
     return OpportunityBrief(
         source=source,
         owner_summary=owner_summary,
-        fit_reason=_short_text(raw_brief.get("fit_reason"), limit=240),
+        fit_reason=_short_text(raw_brief.get("fit_reason"), limit=700),
         blockers=_string_list(raw_brief.get("blockers")),
         required_documents=required_documents,
         missing_items=_string_list(raw_brief.get("missing_items")),
@@ -836,6 +871,25 @@ def _deadline_risk(days_until_deadline: int | None) -> str:
     if days_until_deadline <= 10:
         return "Tight"
     return "Manageable"
+
+
+def _delivery_complexity(opportunity: EvaluatedOpportunity, risk_flags: list[str]) -> str:
+    if opportunity.capacity_assessment.execution_capacity == "Likely Too Large":
+        return "High"
+    if risk_flags or opportunity.capacity_assessment.execution_capacity == "Needs Scheduling Review":
+        return "Medium"
+    return "Low"
+
+
+def _scope_size(opportunity: EvaluatedOpportunity) -> str:
+    value = opportunity.historical.award_median or opportunity.historical.award_max
+    if value >= 1000000:
+        return "Large"
+    if value >= 250000:
+        return "Medium"
+    if value > 0:
+        return "Small"
+    return "Unknown"
 
 
 def _next_action(

@@ -22,6 +22,7 @@ from contract_radar.profiles import SUPPORTED_PROFILE_IDS, get_supported_profile
 from contract_radar.ranker import (
     FEATURE_NAMES,
     MARKET_FEATURE_NAMES,
+    VALUE_FEATURE_NAMES,
     MarketExample,
     RankerExample,
     build_historical_award_examples,
@@ -34,6 +35,7 @@ from contract_radar.ranker import (
     require_sklearn,
     sample_weights,
     target_vector,
+    train_award_value_model,
 )
 from scripts.evaluate_bid_engine import evaluate_bid_engine
 
@@ -97,7 +99,7 @@ def train_bid_ranker(
         float(score)
         for score in model.predict_proba(feature_matrix(examples))[:, 1]
     ]
-    market_summary, market_model = _train_award_history_model(
+    market_summary, market_model, value_model = _train_award_history_model(
         examples=market_examples,
         make_pipeline=make_pipeline,
         logistic_regression_cls=LogisticRegression,
@@ -120,7 +122,7 @@ def train_bid_ranker(
     )
     summary["award_history_model"] = market_summary
     if output_path is not None:
-        _write_model_artifact(output_path, summary, model, market_model)
+        _write_model_artifact(output_path, summary, model, market_model, value_model)
     return summary
 
 
@@ -182,7 +184,7 @@ def _train_award_history_model(
     make_pipeline: Any,
     logistic_regression_cls: Any,
     scaler_cls: Any,
-) -> tuple[dict[str, Any], Any | None]:
+) -> tuple[dict[str, Any], Any | None, Any | None]:
     if len({example.target for example in examples}) < 2:
         raise RuntimeError("Award-history model needs at least one positive and one negative example.")
 
@@ -203,7 +205,10 @@ def _train_award_history_model(
         float(score)
         for score in model.predict_proba(market_feature_matrix(test_examples))[:, 1]
     ]
-    return _market_evaluation_summary(examples, train_examples, test_examples, test_scores, model), model
+    summary = _market_evaluation_summary(examples, train_examples, test_examples, test_scores, model)
+    value_model, value_summary = train_award_value_model(examples)
+    summary["value_model"] = value_summary
+    return summary, model, value_model
 
 
 def _temporal_market_split(examples: list[MarketExample]) -> tuple[list[MarketExample], list[MarketExample]]:
@@ -517,6 +522,7 @@ def _write_model_artifact(
     summary: dict[str, Any],
     model: Any,
     market_model: Any | None,
+    value_model: Any | None,
 ) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     artifact = {
@@ -524,6 +530,8 @@ def _write_model_artifact(
             "shadow_fit_ranker": _model_artifact(model, FEATURE_NAMES),
             "award_history_market_model": _model_artifact(market_model, MARKET_FEATURE_NAMES)
             if market_model is not None else None,
+            "award_value_model": _model_artifact(value_model, VALUE_FEATURE_NAMES)
+            if value_model is not None else None,
         },
         "evaluation": summary,
     }
@@ -531,12 +539,20 @@ def _write_model_artifact(
 
 
 def _model_artifact(model: Any, feature_names: list[str]) -> dict[str, Any]:
-    classifier = model.named_steps["logisticregression"]
+    if hasattr(model, "named_steps") and "logisticregression" in model.named_steps:
+        classifier = model.named_steps["logisticregression"]
+        return {
+            "model_type": "sklearn.pipeline.StandardScaler+LogisticRegression",
+            "feature_names": feature_names,
+            "intercept": [float(value) for value in classifier.intercept_],
+            "coefficients": [float(value) for value in classifier.coef_[0]],
+        }
+    feature_importances = getattr(model, "feature_importances_", None)
     return {
-        "model_type": "sklearn.pipeline.StandardScaler+LogisticRegression",
+        "model_type": f"{model.__class__.__module__}.{model.__class__.__name__}",
         "feature_names": feature_names,
-        "intercept": [float(value) for value in classifier.intercept_],
-        "coefficients": [float(value) for value in classifier.coef_[0]],
+        "feature_importances": [float(value) for value in feature_importances]
+        if feature_importances is not None else [],
     }
 
 
@@ -638,6 +654,13 @@ def _print_human_summary(summary: dict[str, Any], output_path: Path | None) -> N
             f"top-decile lift={lift_text}, "
             f"average precision={market['average_precision']:.3f}"
         )
+        value_model = market.get("value_model") or {}
+        if value_model.get("status") == "trained":
+            print(
+                "  Award value model: "
+                f"{value_model.get('mode')} | MAE ${float(value_model.get('mae') or 0):,.0f} | "
+                f"MAPE {float(value_model.get('mape') or 0):.1%}"
+            )
         print("  Market feature weights:")
         for item in market["top_weighted_features"][:6]:
             print(f"    {item['feature']}: {item['weight']}")

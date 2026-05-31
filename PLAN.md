@@ -8,6 +8,16 @@
 - Improved owner-ready rationale by carrying Nemotron brief fit reasons and next steps into the bid fitness trace while keeping deterministic fallback behavior available.
 - Expanded tests for bid recommendation math, NIM schema fallback behavior, unavailable-NIM fast fail, partial model failure metrics, and service payload bid guidance.
 
+## Done - Robust Bid Ranking Pipeline
+
+- Replaced simple average-based bid guidance with a richer ranking pipeline: deterministic hard gates, historical award RAG, shortlist requirement extraction, trained fit/value models, repeatable revenue simulation, and capacity-aware portfolio decisions.
+- Added historical award retrieval evidence for each evaluated opportunity, including top analogs, similarity, matched terms, buyer/division/type matches, award values, and RAG-derived value statistics.
+- Added an award-value regression model alongside the existing fit model so recommended bid guidance is based on learned historical patterns with feature metadata and holdout metrics, while averages remain fallback/baseline evidence.
+- Added repeatable revenue range simulation so the UI can show likely low/high revenue, downside/upside cases, confidence, and drivers instead of one brittle point estimate.
+- Added a portfolio optimizer layer that decides `Pursue Now`, `Pursue If Capacity Frees`, `Review`, `Monitor`, or `Pass` under estimator-hours and active-pursuit constraints. Local mode honestly reports deterministic greedy fallback; cuOpt detection is wired for a future solver adapter.
+- Expanded the API payload and UI to show `predicted_bid`, bid ranges, `fit_probability`, revenue/risk scores, RAG evidence, simulation summary, portfolio decision, and model explanation.
+- Verified with `python -m unittest`, focused robust-pipeline tests, API smoke test, and browser UI sanity check on the local `python app.py --without-nemotron` fallback path.
+
 ## Core Message
 
 This is not a chatbot. It is a local bid intelligence engine for businesses that want government contracts.

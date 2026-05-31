@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>SoBid</title>
     <link rel="stylesheet" href="/static/vendor-modern-normalize.css">
-    <link rel="stylesheet" href="/static/styles.css?v=summary-cleanup-5">
+    <link rel="stylesheet" href="/static/styles.css?v=decision-proof-1">
   </head>
   <body>
     <div class="app-shell">
@@ -96,8 +96,8 @@
         </div>
 
         <nav class="view-tabs" aria-label="Views">
-          <button id="ownerTab" class="tab-button active" type="button">Matches</button>
-          <button id="evidenceTab" class="tab-button" type="button">Why These?</button>
+          <button id="ownerTab" class="tab-button active" type="button">Inbox</button>
+          <button id="evidenceTab" class="tab-button" type="button">Proof</button>
         </nav>
 
         <div class="system-strip" aria-live="polite">
@@ -105,6 +105,27 @@
           <span id="gpuStatus" class="system-chip">Local processing: pending</span>
           <span id="nemotronStatus" class="system-chip">Bid brief: pending</span>
         </div>
+
+        <section class="action-dock" aria-label="Search actions">
+          <div>
+            <p class="eyebrow">Search</p>
+            <h3>Find & Prepare</h3>
+          </div>
+          <div class="decision-actions">
+            <button id="scanButton" class="primary-action" type="button">Find Matches</button>
+            <label class="month-picker" for="monthSelector">
+              <span>Month</span>
+              <select id="monthSelector" aria-label="Demo month">
+                <option value="2026-01-31">January</option>
+                <option value="2026-02-28">February</option>
+                <option value="2026-03-31">March</option>
+                <option value="2026-04-30">April</option>
+                <option value="2026-05-30" selected>May</option>
+              </select>
+            </label>
+            <button id="approveButton" class="approve-action" type="button" disabled><span>Prepare Bid Notes</span></button>
+          </div>
+        </section>
       </header>
 
       <main class="main-panel" aria-label="Opportunity workspace">
@@ -136,11 +157,11 @@
           </div>
 
           <div class="workbench-grid">
-            <section class="queue-column" aria-label="Opportunity queue">
+            <section class="queue-column" aria-label="Potential contracts">
               <div class="panel-heading-row">
                 <div>
-                  <p class="eyebrow">Best Matches</p>
-                  <h3>Look At These</h3>
+                  <p class="eyebrow">Potential Contracts</p>
+                  <h3>Contract Inbox</h3>
                 </div>
                 <span id="topCount" class="count-pill">0</span>
               </div>
@@ -148,11 +169,11 @@
                 <p>Find matches to see city contracts worth your time.</p>
               </div>
 
-              <div class="mini-heading">
-                <span>Keep Watching</span>
+              <div class="mini-heading" hidden>
+                <span>Other Matches</span>
                 <span id="watchCount" class="count-pill">0</span>
               </div>
-              <div id="watchlist" class="docket-list compact-list empty-list">
+              <div id="watchlist" class="docket-list compact-list empty-list" hidden>
                 <p>Relevant listings that are not urgent will appear here.</p>
               </div>
             </section>
@@ -160,8 +181,8 @@
             <section class="dossier-column" aria-label="Selected listing details">
               <div class="panel-heading-row">
                 <div>
-                  <p class="eyebrow">Plain-English Summary</p>
-                  <h3>Selected Listing</h3>
+                  <p class="eyebrow">10-Second Read</p>
+                  <h3>Selected Contract</h3>
                 </div>
               </div>
               <div id="selectedOpportunityDetail" class="selected-detail empty-list">
@@ -170,27 +191,6 @@
             </section>
 
             <aside class="gate-column" aria-label="Ready check">
-              <section class="action-dock" aria-label="Actions">
-                <div>
-                  <p class="eyebrow">Actions</p>
-                  <h3>Decide Next Step</h3>
-                </div>
-                <div class="decision-actions">
-                  <button id="scanButton" class="primary-action" type="button">Find Matches</button>
-                  <label class="month-picker" for="monthSelector">
-                    <span>Month</span>
-                    <select id="monthSelector" aria-label="Demo month">
-                      <option value="2026-01-31">January</option>
-                      <option value="2026-02-28">February</option>
-                      <option value="2026-03-31">March</option>
-                      <option value="2026-04-30">April</option>
-                      <option value="2026-05-30" selected>May</option>
-                    </select>
-                  </label>
-                  <button id="approveButton" class="approve-action" type="button" disabled><span>Prepare Bid</span> <span>Notes</span></button>
-                </div>
-              </section>
-
               <section class="gate-card">
                 <div class="panel-heading-row">
                   <div>
@@ -255,7 +255,7 @@
           <div class="audit-grid">
             <section class="audit-ledger-section" aria-label="Pipeline details">
               <div class="panel-heading-row">
-                <h3>How We Checked</h3>
+                <h3>Why This Decision</h3>
                 <span id="engineLabel" class="count-pill">Python</span>
               </div>
               <div id="pipelineDetails" class="pipeline-list empty-list">
@@ -298,6 +298,6 @@
     </div>
 
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
-    <script src="/static/app.js?v=summary-cleanup-5"></script>
+    <script src="/static/app.js?v=decision-proof-1"></script>
   </body>
 </html>

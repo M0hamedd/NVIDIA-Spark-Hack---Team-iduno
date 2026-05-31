@@ -346,6 +346,7 @@ function renderOwner(result) {
   updateSnapshotLabel();
   const top = result.top_opportunities || [];
   const watch = result.watchlist || [];
+  const inboxItems = [...top, ...watch];
   const timeline = result.timeline || [];
   const metrics = result.metrics || {};
   const topDecision = top[0] || watch[0];
@@ -363,12 +364,12 @@ function renderOwner(result) {
   $("summaryTask").textContent = summary ? summary.task : "See why we passed";
   $("summaryFit").textContent = summary ? summary.fit : "No strong match";
 
-  $("topCount").textContent = String(top.length);
-  $("watchCount").textContent = String(watch.length);
+  $("topCount").textContent = String(inboxItems.length);
+  $("watchCount").textContent = "0";
   $("timelineCount").textContent = String(timeline.length);
 
-  renderOpportunityList($("topOpportunities"), top, "No good matches found.");
-  renderOpportunityList($("watchlist"), watch, "No listings to keep watching yet.");
+  renderOpportunityList($("topOpportunities"), inboxItems, "No good matches found.");
+  renderOpportunityList($("watchlist"), [], "No listings to keep watching yet.");
   renderSelectedOpportunityDetail(selected);
   renderDecisionGate(selected, result);
   renderTimeline(timeline);
@@ -484,68 +485,74 @@ function renderSelectedOpportunityDetail(item) {
     solicitation.buyer_email
   ].filter(Boolean).join(" / ");
   const officialDescription = String(solicitation.description || "").trim();
-  const whatThisIs = shortText(
-    cleanDisplayText(getPlainOpportunitySummary(item) || officialDescription || "Official scope summary is not listed in the feed."),
-    240
-  );
-  const whyMatched = compactSentenceList(
-    whyMatchedItems(item, trace, requirements, brief),
-    "Matched against this business lane using category, scope terms, and profile evidence.",
-    2,
-    240
+  const whatThisIs = cleanDisplayText(
+    getPlainOpportunitySummary(item) || officialDescription || "Official scope summary is not listed in the feed."
   );
   const blockers = blockerItems(item, trace, brief);
-  const blockerText = compactSentenceList(
+  const blockerText = fullSentenceList(
     blockers,
     "No clear deal-breaker surfaced. Confirm the city listing before spending estimating time.",
-    2,
-    240
+    4
   );
   const bidRecommendation = getBidRecommendation(item);
   const bidAmount = bidRecommendation && bidRecommendation.recommended_bid
     ? formatMoney(bidRecommendation.recommended_bid)
     : "Not enough history";
+  const bidRange = bidRangeLabel(bidRecommendation);
   const nextStep = ownerTaskText(item);
   const fit = fitConfidenceText(item, trace);
+  const decision = ownerDecisionLabel(item.label);
+  const internalLabel = decisionLabel(item.label);
+  const sourceLabel = briefSourceLabel(brief);
+  const whyUs = fitNarrative(item, trace, requirements, brief);
+  const scope = scopeNarrative(item, requirements, brief, whatThisIs);
+  const documents = documentItems(item, requirements, brief);
+  const documentText = documents.length
+    ? humanList(documents)
+    : "Confirm the official Toronto package before assigning estimating time.";
+  const buyerText = buyer || "Toronto contact not listed";
+  const title = getCompactOpportunityTitle(item, 190);
 
   container.className = "selected-detail";
   container.innerHTML = `
-    <article class="selected-detail-card decision-brief">
-      <div class="decision-brief-title">
-        <div>
-          <p class="eyebrow">Decision Summary</p>
-          <h4>${escapeHtml(getCompactOpportunityTitle(item, 180))}</h4>
+    <article class="selected-detail-card contract-reader">
+      <section class="contract-hero decision-${escapeHtml(internalLabel.toLowerCase())}">
+        <div class="contract-hero-copy">
+          <span class="label-pill ${labelClass(internalLabel)}">${escapeHtml(decision)}</span>
+          <h4>${escapeHtml(title)}</h4>
+          <p>${escapeHtml(shortText(scope, 220))}</p>
         </div>
-        <div class="brief-status-pills" aria-label="Listing status">
-          <span>${escapeHtml(fit)}</span>
-          <span>${escapeHtml(dayText)}</span>
+        <div class="contract-next-step">
+          <span>Next step</span>
+          <strong>${escapeHtml(cleanDisplayText(nextStep))}</strong>
+          <em>${escapeHtml(sourceLabel)}</em>
         </div>
-      </div>
+      </section>
 
-      <dl class="brief-facts">
-        ${renderSelectedFact("Listing", getOpportunityId(item) || "Not listed")}
-        ${renderSelectedFact("Deadline", deadline)}
-        ${renderSelectedFact("Bid Amount", bidAmount)}
-        ${renderSelectedFact("Contact", buyer || "Toronto contact not listed", "wide")}
+      <dl class="hero-facts">
+        ${renderHeroFact("Due Date", deadline, dayText, "deadline")}
+        ${renderHeroFact("Document #", getOpportunityId(item) || "Not listed", solicitation.solicitation_type || "Toronto listing")}
+        ${renderHeroFact("Estimated Bid", bidAmount, bidRange || "Historical award guidance")}
+        ${renderHeroFact("Fit", fit, buyerText, "fit")}
       </dl>
 
-      ${renderDecisionBriefBlock("Next Step", nextStep, "action primary")}
-
-      <div class="brief-grid">
+      <div class="quick-read-grid">
+        ${renderDecisionBriefBlock("Why Us", whyUs, "primary wide")}
         ${renderDecisionBriefBlock("Scope", whatThisIs)}
-        ${renderDecisionBriefBlock("Why It Matched", whyMatched)}
-        ${renderDecisionBriefBlock("Revenue Guidance", bidRecommendationLanguage(item))}
-        ${renderDecisionBriefBlock("Risk To Check", blockerText, blockers.length ? "warning" : "")}
+        ${renderDecisionBriefBlock("Bid Value", bidRecommendationLanguage(item))}
+        ${renderDecisionBriefBlock("Documents", documentText)}
+        ${renderDecisionBriefBlock("What To Check", blockerText, blockers.length ? "warning" : "")}
       </div>
     </article>
   `;
 }
 
-function renderSelectedFact(label, value, modifier = "") {
+function renderHeroFact(label, value, note = "", modifier = "") {
   return `
-    <div class="${modifier ? `brief-fact-${escapeHtml(modifier)}` : ""}">
+    <div class="${modifier ? `hero-fact-${escapeHtml(modifier)}` : ""}">
       <dt>${escapeHtml(label)}</dt>
       <dd>${escapeHtml(value)}</dd>
+      ${note ? `<small>${escapeHtml(cleanDisplayText(note))}</small>` : ""}
     </div>
   `;
 }
@@ -562,6 +569,62 @@ function renderDecisionBriefBlock(label, body, tone = "") {
       <p>${escapeHtml(cleanDisplayText(body))}</p>
     </section>
   `;
+}
+
+function bidRangeLabel(recommendation) {
+  if (!recommendation) {
+    return "";
+  }
+  if (recommendation.low_bid && recommendation.high_bid && recommendation.low_bid !== recommendation.high_bid) {
+    return `${formatMoney(recommendation.low_bid)}-${formatMoney(recommendation.high_bid)}`;
+  }
+  if (recommendation.confidence) {
+    return `${recommendation.confidence} confidence`;
+  }
+  return "";
+}
+
+function fitNarrative(item, trace, requirements, brief) {
+  const briefFit = cleanDisplayText(String((brief && brief.fit_reason) || "").trim());
+  if (briefFit && briefFit.length > 36) {
+    return briefFit;
+  }
+
+  const profile = currentProfile();
+  const services = firstItems((requirements && requirements.services) || item.matched_terms || [], 4);
+  const history = item.historical || {};
+  const assessment = getCapacityAssessment(item);
+  const parts = [];
+  if (services.length) {
+    parts.push(`${compactCompanyName(profile.name) || "This business"} already works in ${humanList(services)}, which matches the core scope in this listing.`);
+  } else {
+    parts.push(`${compactCompanyName(profile.name) || "This business"} matches the selected ${compactProfileLabel(profile)} lane for this listing.`);
+  }
+  if (history.similar_count) {
+    const median = history.award_median ? ` with a typical award around ${formatMoney(history.award_median)}` : "";
+    parts.push(`The system found ${number(history.similar_count)} similar Toronto award(s)${median}, so this is grounded in real purchasing history rather than keyword overlap.`);
+  }
+  if (assessment) {
+    parts.push(`Capacity check: ${assessment.pursuit_load} pursuit load, ${String(assessment.response_capacity || "").toLowerCase()}, and ${String(assessment.execution_capacity || "").toLowerCase()}.`);
+  }
+  const positive = firstItems((trace && trace.positiveSignals) || [], 1)[0];
+  if (positive) {
+    parts.push(ownerText(positive));
+  }
+  return cleanDisplayText(parts.join(" "));
+}
+
+function scopeNarrative(item, requirements, brief, fallback) {
+  const summary = cleanDisplayText(String((brief && brief.owner_summary) || "").trim());
+  if (summary) {
+    return summary;
+  }
+  const services = firstItems((requirements && requirements.services) || item.matched_terms || [], 4);
+  const solicitation = item.solicitation || {};
+  if (services.length) {
+    return `City work involving ${humanList(services)}${solicitation.division ? ` for ${solicitation.division}` : ""}.`;
+  }
+  return fallback;
 }
 
 function renderDossierBucket(label, items, emptyText) {
@@ -632,79 +695,71 @@ function renderDecisionGate(item, result) {
 }
 
 function renderPipeline(metrics) {
-  const selected = findSelectedOpportunity() || firstDecisionOpportunity();
-  const solicitation = (selected && selected.solicitation) || {};
-  const structuredRequirements = getStructuredRequirements(selected);
-  const requirements = firstItems((selected && selected.matched_terms) || [], 5);
-  const reasons = firstItems((selected && (selected.reasons || selected.rejection_reasons)) || [], 3);
-  const supporting = supportingLabels(selected);
-  const warnings = firstItems(metrics.warnings || [], 2);
-  const stages = [
-    {
-      name: "City Listings",
-      output: metrics.solicitations_loaded
-        ? `Checked ${number(metrics.solicitations_loaded)} current listings and ${number(metrics.awards_loaded)} past awards; avoided ${number(metrics.model_calls_avoided)} unnecessary deep check(s).`
-        : "Toronto city listings are ready for the next search."
-    },
-    {
-      name: "Read The Listing",
-      output: selected
-        ? `${solicitation.solicitation_type || "City listing"} from ${solicitation.buyer || solicitation.division || "Toronto"}; deadline ${solicitation.submission_deadline || "not listed"}.`
-        : "No city listing selected yet."
-    },
-    {
-      name: "Needed Documents",
-      output: requirementExtractionLanguage(selected, structuredRequirements, requirements, solicitation),
-      source: extractorSourceLabel(structuredRequirements)
-    },
-    {
-      name: "Business Fit",
-      output: supporting.coreFit
-        ? `Fit: ${ownerText(supporting.coreFit)}. ${ownerText(reasons[0] || `Compared against ${currentProfile().label} work and capacity.`)}`
-        : ownerText(reasons[0] || `Compares the work to ${currentProfile().name}'s services and capacity.`)
-    },
-    {
-      name: "Past Awards",
-      output: awardLanguage(selected)
-    },
-    {
-      name: "Bid Amount",
-      output: bidRecommendationLanguage(selected),
-      source: selected && getBidRecommendation(selected) ? "historical contract-type average" : ""
-    },
-    {
-      name: "Market Signal",
-      output: marketFitLanguage(selected),
-      source: selected && getMarketFit(selected) ? "scikit-learn local model" : ""
-    },
-    {
-      name: "Risk Check",
-      output: riskLanguage(selected, supporting, structuredRequirements)
-    },
-    {
-      name: "Bottom Line",
-      output: selected
-        ? `${ownerDecisionLabel(selected.label)} under ${PRIORITY_LABELS[getPriorityMode()]}. ${ownerText(finalReason(selected, structuredRequirements))}`
-        : `Waiting for matches using ${PRIORITY_LABELS[getPriorityMode()]}.`
-    }
+  const candidates = [
+    ...((state.scan && state.scan.top_opportunities) || []),
+    ...((state.scan && state.scan.watchlist) || [])
   ];
+  const items = candidates.length ? candidates : [findSelectedOpportunity() || firstDecisionOpportunity()].filter(Boolean);
+  const warnings = firstItems(metrics.warnings || [], 1);
+  const summary = metrics.solicitations_loaded
+    ? `Checked ${number(metrics.solicitations_loaded)} current listings and ${number(metrics.awards_loaded)} past awards, then kept the contracts worth owner attention.`
+    : "Decision reasons appear after contracts are checked.";
 
-  if (warnings.length) {
-    stages[0].note = warnings.join(" ");
+  $("pipelineDetails").className = "pipeline-list decision-proof-list";
+  if (!items.length) {
+    $("pipelineDetails").innerHTML = `<p>${escapeHtml(summary)}</p>`;
+    return;
   }
 
-  $("pipelineDetails").className = "pipeline-list";
-  $("pipelineDetails").innerHTML = stages.map((stage, index) => `
-    <article class="pipeline-stage">
-      <div class="stage-marker" aria-hidden="true">${index + 1}</div>
-      <div class="stage-body">
-        <h4>${escapeHtml(stage.name)}</h4>
-        ${stage.source ? `<div class="source-label">${escapeHtml(stage.source)}</div>` : ""}
-        <p>${escapeHtml(ownerText(stage.output))}</p>
-        ${stage.note ? `<span>${escapeHtml(ownerText(stage.note))}</span>` : ""}
-      </div>
+  $("pipelineDetails").innerHTML = `
+    <article class="decision-proof-summary">
+      <strong>Why These Decisions</strong>
+      <p>${escapeHtml(ownerText(summary))}</p>
+      ${warnings.length ? `<span>${escapeHtml(ownerText(warnings[0]))}</span>` : ""}
     </article>
-  `).join("") + renderBidFitnessTrace(selected, structuredRequirements);
+    ${items.map((item) => renderDecisionProofCard(item)).join("")}
+  `;
+}
+
+function renderDecisionProofCard(item) {
+  const requirements = getStructuredRequirements(item);
+  const trace = normalizedBidFitnessTrace(item, requirements);
+  const brief = getOpportunityBrief(item);
+  const solicitation = item.solicitation || {};
+  const internalLabel = decisionLabel(item.label);
+  const decision = ownerDecisionLabel(item.label);
+  const title = getCompactOpportunityTitle(item, 120);
+  const bidLabel = bidRecommendationLabel(item) || "Bid value not estimated";
+  const why = internalLabel === "Skip"
+    ? fullSentenceList(blockerItems(item, trace, brief), "This listing is probably not worth bid time.", 3)
+    : fitNarrative(item, trace, requirements, brief);
+  const check = internalLabel === "Pursue"
+    ? ownerTaskText(item)
+    : fullSentenceList(blockerItems(item, trace, brief), ownerTaskText(item), 2);
+  return `
+    <article class="decision-proof-card decision-${escapeHtml(internalLabel.toLowerCase())}">
+      <div class="decision-proof-head">
+        <div>
+          <span class="label-pill ${labelClass(internalLabel)}">${escapeHtml(decision)}</span>
+          <h4>${escapeHtml(title)}</h4>
+        </div>
+        <strong>${escapeHtml(bidLabel)}</strong>
+      </div>
+      <dl class="decision-proof-meta">
+        <div><dt>Document</dt><dd>${escapeHtml(getOpportunityId(item) || "Not listed")}</dd></div>
+        <div><dt>Due</dt><dd>${escapeHtml(solicitation.submission_deadline || "Not listed")}</dd></div>
+        <div><dt>Status</dt><dd>${escapeHtml(deadlinePressureText(item))}</dd></div>
+      </dl>
+      <section>
+        <span>Why this decision</span>
+        <p>${escapeHtml(cleanDisplayText(why))}</p>
+      </section>
+      <section>
+        <span>What to check next</span>
+        <p>${escapeHtml(cleanDisplayText(check))}</p>
+      </section>
+    </article>
+  `;
 }
 
 function renderScorecard(result) {
@@ -1277,7 +1332,7 @@ function setBusy(isBusy, message = "") {
   if (isBusy && message.toLowerCase().includes("bid notes")) {
     approveButton.textContent = "Preparing...";
   } else {
-    approveButton.innerHTML = "<span>Prepare Bid</span> <span>Notes</span>";
+    approveButton.innerHTML = "<span>Prepare Bid Notes</span>";
   }
   if (isBusy && message) {
     showToast(message);
@@ -1464,6 +1519,28 @@ function bidRecommendationLanguage(item) {
   return `Bid around ${amount}. ${range} ${evidence}`.replace(/\s+/g, " ").trim();
 }
 
+function simulationLanguage(item) {
+  const simulation = item && item.simulation_summary;
+  if (!simulation || !simulation.iterations) {
+    return "Revenue scenarios appear after the value model scores this listing.";
+  }
+  const range = `${formatMoney(simulation.likely_low)} to ${formatMoney(simulation.likely_high)}`;
+  const downside = simulation.downside_case ? ` Downside ${formatMoney(simulation.downside_case)}.` : "";
+  const driver = firstItems(simulation.drivers || [], 1)[0] || "";
+  return `Likely revenue range ${range} (${simulation.confidence || "directional"} confidence).${downside} ${driver}`.replace(/\s+/g, " ").trim();
+}
+
+function portfolioLanguage(item) {
+  const decision = item && item.portfolio_decision;
+  if (!decision || !decision.decision) {
+    return "Portfolio optimizer runs after revenue scoring and capacity checks.";
+  }
+  const value = decision.expected_value ? ` Expected value ${formatMoney(decision.expected_value)}.` : "";
+  const effort = decision.estimator_hours ? ` Estimator effort ${number(decision.estimator_hours)} hours.` : "";
+  const reason = firstItems(decision.reasons || [], 1)[0] || "";
+  return `${decision.decision}.${value}${effort} ${reason}`.replace(/\s+/g, " ").trim();
+}
+
 function marketFitLabel(market) {
   if (!market) {
     return "Market not scored";
@@ -1490,10 +1567,10 @@ function briefSourceLabel(brief) {
     return "Bid brief";
   }
   if (brief.source === "local_nim") {
-    return "Local bid brief";
+    return "Local Nemotron brief";
   }
   if (brief.source === "deterministic_fallback") {
-    return "Deterministic brief";
+    return "Basic local brief";
   }
   return `${titleCase(humanizeToken(brief.source))} brief`;
 }
@@ -1615,6 +1692,10 @@ function ownerText(value) {
   return String(value || "")
     .replace(/\bPursue Now\b/g, "Worth reviewing today")
     .replace(/\bPursue After Review\b/g, "Check first, then decide")
+    .replace(/\bReview risks\b/gi, "Check risks")
+    .replace(/\bReview the\b/gi, "Check the")
+    .replace(/\bReview whether\b/gi, "Check whether")
+    .replace(/\bReview all\b/gi, "Check all")
     .replace(/\bPursue\b/g, "Recommended Bid")
     .replace(/\bReview\b/g, "Check First")
     .replace(/\bMonitor\b/g, "Keep Watching")
@@ -1997,7 +2078,7 @@ function queueReason(item) {
   const source = label === "Skip"
     ? blockerItems(item, trace, brief)
     : whyMatchedItems(item, trace, requirements, brief);
-  return shortText(ownerText(source[0] || finalReason(item, requirements)), 128);
+  return cleanDisplayText(ownerText(source[0] || finalReason(item, requirements)));
 }
 
 function ownerTaskText(item) {
@@ -2088,6 +2169,11 @@ function compactSentenceList(items, fallback, limit = 2, maxLength = 220) {
     return fallback;
   }
   return shortText(cleanDisplayText(safeItems.join("; ")), maxLength);
+}
+
+function fullSentenceList(items, fallback, limit = 4) {
+  const safeItems = firstItems(uniqueTextItems(textItems(items).map(cleanDisplayText)), limit);
+  return safeItems.length ? cleanDisplayText(safeItems.join("; ")) : fallback;
 }
 
 function finalReason(item, requirements) {

@@ -367,6 +367,9 @@ class RequirementExtraction:
     capacity_flags: list[str] = field(default_factory=list)
     procurement_type: str = ""
     deadline_risk: str = ""
+    delivery_complexity: str = ""
+    scope_size: str = ""
+    disqualifying_requirements: list[str] = field(default_factory=list)
     next_action: str = ""
     summary: str = ""
 
@@ -424,6 +427,69 @@ class BidRecommendation:
 
 
 @dataclass
+class RAGEvidence:
+    source: str = "not_retrieved"
+    mode: str = "none"
+    top_similarity: float = 0.0
+    average_similarity: float = 0.0
+    same_buyer_count: int = 0
+    same_division_count: int = 0
+    same_type_count: int = 0
+    value_min: float = 0.0
+    value_median: float = 0.0
+    value_max: float = 0.0
+    evidence: list[str] = field(default_factory=list)
+    analogs: list[dict[str, Any]] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class SimulationSummary:
+    source: str = "not_simulated"
+    seed: int = 0
+    iterations: int = 0
+    downside_case: float = 0.0
+    likely_low: float = 0.0
+    likely_high: float = 0.0
+    upside_case: float = 0.0
+    confidence: str = "Unknown"
+    drivers: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class PortfolioDecision:
+    source: str = "not_optimized"
+    engine: str = "none"
+    decision: str = "Monitor"
+    priority_rank: int = 0
+    expected_value: float = 0.0
+    estimator_hours: float = 0.0
+    capacity_used: bool = False
+    reasons: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class ModelExplanation:
+    source: str = "not_scored"
+    model_type: str = ""
+    feature_names: list[str] = field(default_factory=list)
+    top_factors: list[dict[str, Any]] = field(default_factory=list)
+    metrics: dict[str, Any] = field(default_factory=dict)
+    evidence: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
 class CapacityAssessment:
     pursuit_load: str = "Clear"
     response_capacity: str = "Enough Time"
@@ -466,6 +532,16 @@ class EvaluatedOpportunity:
     opportunity_brief: OpportunityBrief = field(default_factory=OpportunityBrief)
     market_fit: MarketFitSignal = field(default_factory=MarketFitSignal)
     bid_recommendation: BidRecommendation = field(default_factory=BidRecommendation)
+    predicted_bid: float = 0.0
+    bid_range_low: float = 0.0
+    bid_range_high: float = 0.0
+    fit_probability: float = 0.0
+    revenue_score: float = 0.0
+    risk_score: float = 0.0
+    rag_evidence: RAGEvidence = field(default_factory=RAGEvidence)
+    simulation_summary: SimulationSummary = field(default_factory=SimulationSummary)
+    portfolio_decision: PortfolioDecision = field(default_factory=PortfolioDecision)
+    model_explanation: ModelExplanation = field(default_factory=ModelExplanation)
     capacity_assessment: CapacityAssessment = field(default_factory=CapacityAssessment)
     bid_fitness_trace: BidFitnessTrace = field(default_factory=BidFitnessTrace)
     nemotron_summary: str = ""
@@ -481,6 +557,10 @@ class EvaluatedOpportunity:
         data["nemotron_brief"] = self.opportunity_brief.to_dict()
         data["market_fit"] = self.market_fit.to_dict()
         data["bid_recommendation"] = self.bid_recommendation.to_dict()
+        data["rag_evidence"] = self.rag_evidence.to_dict()
+        data["simulation_summary"] = self.simulation_summary.to_dict()
+        data["portfolio_decision"] = self.portfolio_decision.to_dict()
+        data["model_explanation"] = self.model_explanation.to_dict()
         data["capacity_assessment"] = self.capacity_assessment.to_dict()
         data["bid_fitness_trace"] = self.bid_fitness_trace.to_dict()
         data["label_changed_by_extraction"] = bool(
@@ -510,6 +590,11 @@ class PipelineMetrics:
     market_model_precision_at_10: float = 0.0
     market_model_top_decile_lift: float = 0.0
     market_model_average_precision: float = 0.0
+    value_model_mode: str = "not_scored"
+    value_model_mae: float = 0.0
+    value_model_mape: float = 0.0
+    rag_mode: str = "not_retrieved"
+    cuopt_mode: str = "greedy_fallback"
     data_sources: dict[str, str] = field(default_factory=dict)
     label_counts: dict[str, int] = field(default_factory=dict)
     engine: str = "python"

@@ -19,16 +19,21 @@ class ContractRadarService:
     def health(self) -> dict[str, Any]:
         from contract_radar.gpu import gpu_status
         from contract_radar.nemotron import nemotron_status
-        from contract_radar.ranker import ranker_status
+        from contract_radar.portfolio import cuopt_status
+        from contract_radar.ranker import ranker_status, value_model_status
 
         gpu = gpu_status()
         nemotron = nemotron_status()
         ranker = ranker_status()
+        value_model = value_model_status()
+        cuopt = cuopt_status()
         active_tools = []
         if gpu.get("rapids_cudf_available"):
             active_tools.append("RAPIDS/cuDF")
         if nemotron.get("available"):
             active_tools.append("NIM/Nemotron")
+        if cuopt.get("available"):
+            active_tools.append("cuOpt")
         nvidia_stack_active = bool(active_tools)
         if nvidia_stack_active:
             spark_story = (
@@ -55,6 +60,8 @@ class ContractRadarService:
             "gpu": gpu,
             "nemotron": nemotron,
             "ranker": ranker,
+            "value_model": value_model,
+            "cuopt": cuopt,
             "nvidia_stack_active": nvidia_stack_active,
             "active_nvidia_tools": active_tools,
             "rapids_cudf_available": bool(gpu.get("rapids_cudf_available")),
@@ -70,7 +77,10 @@ class ContractRadarService:
         from contract_radar.history import summarize_past_opportunities
         from contract_radar.matcher import evaluate_opportunities, normalize_priority_mode
         from contract_radar.nemotron import enrich_top_opportunities_with_stats
+        from contract_radar.portfolio import cuopt_status, optimize_bid_portfolio
+        from contract_radar.rag import attach_rag_evidence
         from contract_radar.ranker import apply_market_intelligence
+        from contract_radar.revenue_simulation import attach_revenue_simulations
 
         start = time.perf_counter()
         profile = profile_from_payload(payload or {})
@@ -85,6 +95,13 @@ class ContractRadarService:
             today=today,
             priority_mode=priority_mode,
         )
+        evaluated = attach_rag_evidence(profile, evaluated, data_bundle.awards)
+        extraction_candidates = [
+            item for item in evaluated if item.label != "Skip"
+        ][:40]
+        enriched, nemotron_mode, nemotron_stats = enrich_top_opportunities_with_stats(profile, extraction_candidates)
+        enriched_by_doc = {item.solicitation.document_number: item for item in enriched}
+        evaluated = [enriched_by_doc.get(item.solicitation.document_number, item) for item in evaluated]
         market_model = self._market_model_for(profile, data_bundle.awards)
         evaluated = apply_market_intelligence(
             profile=profile,
@@ -94,14 +111,22 @@ class ContractRadarService:
             today=today,
             priority_mode=priority_mode,
         )
-        enriched, nemotron_mode, nemotron_stats = enrich_top_opportunities_with_stats(profile, evaluated[:5])
-        enriched_by_doc = {item.solicitation.document_number: item for item in enriched}
-        evaluated = [enriched_by_doc.get(item.solicitation.document_number, item) for item in evaluated]
+        evaluated = attach_revenue_simulations(profile, evaluated)
+        optimizer_status = cuopt_status()
+        evaluated = optimize_bid_portfolio(profile, evaluated, priority_mode=priority_mode)
         skipped = _prioritized_skips(evaluated)
         scorecard = scorecard_from_evaluated(profile, evaluated, historical_summary)
         metrics = _metrics(data_bundle, evaluated, start, nemotron_mode, nemotron_stats, market_model.summary)
         metrics_dict = metrics.to_dict()
         metrics_dict["priority_mode"] = priority_mode
+        metrics_dict["rag_mode"] = _first_rag_mode(evaluated)
+        metrics_dict["value_model_mode"] = (market_model.value_summary or {}).get("mode", "historical_average")
+        metrics_dict["value_model_mae"] = (market_model.value_summary or {}).get("mae", 0.0)
+        metrics_dict["value_model_mape"] = (market_model.value_summary or {}).get("mape", 0.0)
+        metrics_dict["cuopt_mode"] = optimizer_status.get("mode", "greedy_fallback")
+        if optimizer_status.get("available") and "cuOpt" not in metrics_dict["active_nvidia_tools"]:
+            metrics_dict["active_nvidia_tools"].append("cuOpt")
+            metrics_dict["nvidia_stack_active"] = True
         technical_depth_proof = _technical_depth_proof(metrics_dict, scorecard)
         result = {
             "business_profile": profile.to_dict(),
@@ -252,7 +277,8 @@ def _technical_depth_proof(metrics: dict[str, Any], scorecard: dict[str, Any]) -
     return [
         (
             "Pipeline: Toronto Open Data ingestion -> deterministic bid gates -> historical award "
-            "comparison -> temporal market model -> selective requirement extraction -> approval packet."
+            "RAG -> selective requirement extraction -> value/fit models -> revenue simulation -> "
+            "portfolio optimizer -> approval packet."
         ),
         (
             f"Local scan processed {total_records:,} records and evaluated "
@@ -266,14 +292,18 @@ def _technical_depth_proof(metrics: dict[str, Any], scorecard: dict[str, Any]) -
         (
             f"Award-history ML used {int(metrics.get('market_model_examples') or 0):,} examples, "
             f"precision@10 {float(metrics.get('market_model_precision_at_10') or 0.0):.2f}, "
-            f"and top-decile lift {float(metrics.get('market_model_top_decile_lift') or 0.0):.2f}x."
+            f"top-decile lift {float(metrics.get('market_model_top_decile_lift') or 0.0):.2f}x, "
+            f"and value model MAPE {float(metrics.get('value_model_mape') or 0.0):.2f}."
         ),
         (
             f"Recommendations are grounded in {int(scorecard.get('similar_awards_grounded') or 0):,} "
             f"similar awards while skipping {int(scorecard.get('false_positives_skipped') or 0):,} "
             f"false-positive lookalike(s)."
         ),
-        f"Runtime path: {active_path}; decision mix: {decision_mix}.",
+        (
+            f"Runtime path: {active_path}; RAG={metrics.get('rag_mode', 'unknown')}; "
+            f"portfolio={metrics.get('cuopt_mode', 'greedy_fallback')}; decision mix: {decision_mix}."
+        ),
     ]
 
 
@@ -313,3 +343,10 @@ def _prioritized_skips(evaluated: list[EvaluatedOpportunity]) -> list[EvaluatedO
             item.solicitation.document_number,
         ),
     )
+
+
+def _first_rag_mode(evaluated: list[EvaluatedOpportunity]) -> str:
+    for item in evaluated:
+        if item.rag_evidence and item.rag_evidence.mode:
+            return item.rag_evidence.mode
+    return "not_retrieved"

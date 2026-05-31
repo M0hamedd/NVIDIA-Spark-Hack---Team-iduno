@@ -17,6 +17,7 @@ from contract_radar.models import (
     BusinessProfile,
     EvaluatedOpportunity,
     MarketFitSignal,
+    ModelExplanation,
     Solicitation,
 )
 
@@ -91,6 +92,33 @@ MARKET_FEATURE_NAMES = [
     "prior_buyer_awards_log",
     "description_term_count_log",
 ]
+VALUE_FEATURE_NAMES = [
+    "profile_term_overlap",
+    "skill_match_ratio",
+    "good_fit_overlap",
+    "bad_fit_overlap",
+    "missing_capability_overlap",
+    "top_division_match",
+    "category_construction",
+    "category_professional",
+    "category_goods",
+    "type_rfq_or_quotation",
+    "type_tender",
+    "type_rfp",
+    "type_rfsq",
+    "prior_segment_awards_log",
+    "prior_segment_supplier_log",
+    "prior_top_supplier_share",
+    "prior_segment_median_value_ratio",
+    "prior_accessible_value_share",
+    "prior_supplier_awards_log",
+    "prior_supplier_profile_fit_log",
+    "prior_buyer_awards_log",
+    "description_term_count_log",
+    "award_year_norm",
+    "award_month_sin",
+    "award_month_cos",
+]
 
 
 @dataclass(frozen=True)
@@ -112,6 +140,7 @@ class MarketExample:
     document_number: str
     supplier: str
     award_date: str
+    award_value: float
     label: str
     target: int
     hard_negative: bool
@@ -126,6 +155,8 @@ class TrainedMarketModel:
     profile_id: str
     model: Any
     summary: dict[str, Any]
+    value_model: Any | None = None
+    value_summary: dict[str, Any] | None = None
 
 
 def build_ranker_examples(
@@ -233,6 +264,7 @@ def build_market_award_examples(
                 document_number=f"AWARD:{award.document_number}",
                 supplier=award.supplier,
                 award_date=award.award_date.isoformat() if award.award_date else "",
+                award_value=float(award.award_value),
                 label="FutureProfileAward" if target else "OtherAward",
                 target=target,
                 hard_negative=hard_negative,
@@ -297,7 +329,15 @@ def train_award_history_market_model(
         for score in model.predict_proba(market_feature_matrix(test_examples))[:, 1]
     ]
     summary = market_evaluation_summary(examples, train_examples, test_examples, test_scores, model)
-    return TrainedMarketModel(profile_id=profile.profile_id, model=model, summary=summary)
+    value_model, value_summary = train_award_value_model(examples)
+    summary["value_model"] = value_summary
+    return TrainedMarketModel(
+        profile_id=profile.profile_id,
+        model=model,
+        summary=summary,
+        value_model=value_model,
+        value_summary=value_summary,
+    )
 
 
 def apply_market_intelligence(
@@ -316,7 +356,23 @@ def apply_market_intelligence(
         score = float(model.predict_proba([[features.get(name, 0.0) for name in MARKET_FEATURE_NAMES]])[0][1])
         signal = _market_signal_from_score(opportunity, features, score, trained_model)
         opportunity.market_fit = signal
-        opportunity.bid_recommendation = _bid_recommendation_from_context(profile, opportunity, value_context)
+        opportunity.fit_probability = round(score, 4)
+        value_features = extract_value_opportunity_features(profile, opportunity, context, today)
+        opportunity.bid_recommendation = _bid_recommendation_from_model(
+            profile=profile,
+            opportunity=opportunity,
+            value_features=value_features,
+            trained_model=trained_model,
+            value_context=value_context,
+        )
+        opportunity.predicted_bid = opportunity.bid_recommendation.recommended_bid
+        opportunity.bid_range_low = opportunity.bid_recommendation.low_bid
+        opportunity.bid_range_high = opportunity.bid_recommendation.high_bid
+        opportunity.model_explanation = _model_explanation_from_features(
+            trained_model=trained_model,
+            opportunity_features=features,
+            value_features=value_features,
+        )
         _attach_market_signal_to_trace(opportunity, signal)
         _attach_bid_recommendation_to_trace(opportunity)
 
@@ -355,6 +411,58 @@ def ranker_status() -> dict[str, Any]:
         "version": getattr(sklearn, "__version__", "unknown"),
         "fallback": "none",
     }
+
+
+def value_model_status() -> dict[str, Any]:
+    try:
+        __import__("cuml")
+        return {"available": True, "mode": "rapids_cuml_available", "preferred": "gpu"}
+    except Exception:
+        pass
+    try:
+        __import__("xgboost")
+        return {"available": True, "mode": "xgboost_available", "preferred": "gpu_if_cuda_available"}
+    except Exception:
+        pass
+    try:
+        require_sklearn()
+        return {"available": True, "mode": "sklearn_random_forest_fallback", "preferred": "cpu"}
+    except RuntimeError as exc:
+        return {"available": False, "mode": "missing_dependencies", "error": str(exc)}
+
+
+def _new_value_regressor() -> tuple[Any, str]:
+    try:
+        from xgboost import XGBRegressor  # type: ignore[import-not-found]
+
+        return (
+            XGBRegressor(
+                n_estimators=140,
+                max_depth=4,
+                learning_rate=0.05,
+                subsample=0.85,
+                colsample_bytree=0.85,
+                objective="reg:squarederror",
+                random_state=42,
+                tree_method="hist",
+            ),
+            "xgboost_regression",
+        )
+    except Exception:
+        pass
+
+    from sklearn.ensemble import RandomForestRegressor
+
+    return (
+        RandomForestRegressor(
+            n_estimators=120,
+            max_depth=9,
+            min_samples_leaf=2,
+            random_state=42,
+            n_jobs=1,
+        ),
+        "sklearn_random_forest_regression",
+    )
 
 
 def example_from_opportunity(profile: BusinessProfile, opportunity: EvaluatedOpportunity) -> RankerExample:
@@ -646,6 +754,43 @@ def extract_market_opportunity_features(
     return {name: float(features.get(name, 0.0)) for name in MARKET_FEATURE_NAMES}
 
 
+def extract_value_example_features(example: MarketExample) -> dict[str, float]:
+    features = dict(example.features)
+    award_date = _parse_iso_date(example.award_date)
+    month = award_date.month if award_date else 1
+    year = award_date.year if award_date else 2020
+    features.update(
+        {
+            "award_year_norm": max(0.0, min(1.0, (year - 2018) / 10.0)),
+            "award_month_sin": math.sin((month / 12.0) * math.tau),
+            "award_month_cos": math.cos((month / 12.0) * math.tau),
+        }
+    )
+    return {name: float(features.get(name, 0.0)) for name in VALUE_FEATURE_NAMES}
+
+
+def extract_value_opportunity_features(
+    profile: BusinessProfile,
+    opportunity: EvaluatedOpportunity,
+    context: dict[str, Any] | None,
+    today: date,
+) -> dict[str, float]:
+    features = extract_market_opportunity_features(profile, opportunity, context)
+    rag = opportunity.rag_evidence
+    month = (opportunity.solicitation.issue_date or today).month
+    year = (opportunity.solicitation.issue_date or today).year
+    if rag.value_median and profile.max_contract_value:
+        features["prior_segment_median_value_ratio"] = min(5.0, rag.value_median / profile.max_contract_value)
+    features.update(
+        {
+            "award_year_norm": max(0.0, min(1.0, (year - 2018) / 10.0)),
+            "award_month_sin": math.sin((month / 12.0) * math.tau),
+            "award_month_cos": math.cos((month / 12.0) * math.tau),
+        }
+    )
+    return {name: float(features.get(name, 0.0)) for name in VALUE_FEATURE_NAMES}
+
+
 def feature_matrix(examples: list[RankerExample]) -> list[list[float]]:
     return [[example.features.get(name, 0.0) for name in FEATURE_NAMES] for example in examples]
 
@@ -654,12 +799,20 @@ def market_feature_matrix(examples: list[MarketExample]) -> list[list[float]]:
     return [[example.features.get(name, 0.0) for name in MARKET_FEATURE_NAMES] for example in examples]
 
 
+def value_feature_matrix(examples: list[MarketExample]) -> list[list[float]]:
+    return [[extract_value_example_features(example).get(name, 0.0) for name in VALUE_FEATURE_NAMES] for example in examples]
+
+
 def target_vector(examples: list[RankerExample]) -> list[int]:
     return [example.target for example in examples]
 
 
 def market_target_vector(examples: list[MarketExample]) -> list[int]:
     return [example.target for example in examples]
+
+
+def value_target_vector(examples: list[MarketExample]) -> list[float]:
+    return [math.log1p(max(0.0, example.award_value)) for example in examples]
 
 
 def sample_weights(examples: list[RankerExample]) -> list[float]:
@@ -690,6 +843,48 @@ def market_sample_weights(examples: list[MarketExample]) -> list[float]:
         else:
             weights.append(1.0)
     return weights
+
+
+def train_award_value_model(examples: list[MarketExample]) -> tuple[Any | None, dict[str, Any]]:
+    value_examples = [
+        example
+        for example in examples
+        if example.target and example.award_value > 0
+    ]
+    if len(value_examples) < 8:
+        return None, {
+            "status": "fallback",
+            "mode": "historical_average",
+            "examples": len(value_examples),
+            "reason": "Award-value regression needs at least 8 positive historical awards.",
+        }
+
+    train_examples, test_examples = temporal_market_split(value_examples)
+    if not test_examples:
+        split_at = max(1, int(len(value_examples) * 0.8))
+        train_examples, test_examples = value_examples[:split_at], value_examples[split_at:]
+    model, mode = _new_value_regressor()
+    model.fit(value_feature_matrix(train_examples), value_target_vector(train_examples))
+    predictions = [math.expm1(float(value)) for value in model.predict(value_feature_matrix(test_examples))]
+    actuals = [example.award_value for example in test_examples]
+    mae = sum(abs(predicted - actual) for predicted, actual in zip(predictions, actuals)) / max(1, len(actuals))
+    mape = sum(
+        abs(predicted - actual) / max(1.0, actual)
+        for predicted, actual in zip(predictions, actuals)
+    ) / max(1, len(actuals))
+    return model, {
+        "status": "trained",
+        "mode": mode,
+        "purpose": "Award-value regression trained on historical positive profile-award examples.",
+        "examples": len(value_examples),
+        "training_examples": len(train_examples),
+        "test_examples": len(test_examples),
+        "training_award_date_range": _market_date_range(train_examples),
+        "test_award_date_range": _market_date_range(test_examples),
+        "mae": round(mae, 2),
+        "mape": round(mape, 4),
+        "feature_names": VALUE_FEATURE_NAMES,
+    }
 
 
 def temporal_market_split(examples: list[MarketExample]) -> tuple[list[MarketExample], list[MarketExample]]:
@@ -914,6 +1109,13 @@ def _safe_ratio(numerator: int, denominator: int) -> float:
     return min(1.0, max(0.0, numerator / denominator))
 
 
+def _parse_iso_date(value: str) -> date | None:
+    try:
+        return date.fromisoformat(str(value or "")[:10])
+    except ValueError:
+        return None
+
+
 def _award_text(award: AwardRecord) -> str:
     return " ".join([award.solicitation_type, award.category, award.division, award.description])
 
@@ -1042,6 +1244,41 @@ def _feature_contributions(model: Any, features: dict[str, float], limit: int = 
     ]
 
 
+def _model_explanation_from_features(
+    trained_model: TrainedMarketModel,
+    opportunity_features: dict[str, float],
+    value_features: dict[str, float],
+) -> ModelExplanation:
+    value_summary = trained_model.value_summary or {}
+    evidence = [
+        "Fit probability comes from the temporal award-history classifier.",
+        "Bid amount comes from the award-value regression model when enough historical examples exist.",
+    ]
+    if value_summary.get("status") == "trained":
+        evidence.append(
+            f"Value model holdout MAE ${float(value_summary.get('mae') or 0):,.0f}, "
+            f"MAPE {float(value_summary.get('mape') or 0):.1%}."
+        )
+    else:
+        evidence.append("Value model fell back to historical analog bands because training evidence was limited.")
+    return ModelExplanation(
+        source="local_award_history_models",
+        model_type=f"{trained_model.summary.get('mode', 'classifier')} + {value_summary.get('mode', 'historical_fallback')}",
+        feature_names=VALUE_FEATURE_NAMES,
+        top_factors=_feature_contributions(trained_model.model, opportunity_features),
+        metrics={
+            "fit_model": {
+                "precision_at_10": trained_model.summary.get("precision_at_10", 0.0),
+                "average_precision": trained_model.summary.get("average_precision", 0.0),
+                "top_decile_lift": trained_model.summary.get("top_decile_lift"),
+            },
+            "value_model": value_summary,
+            "nonzero_value_features": sum(1 for name in VALUE_FEATURE_NAMES if value_features.get(name, 0.0)),
+        },
+        evidence=evidence,
+    )
+
+
 def _market_confidence(score: float) -> str:
     if score >= 0.8:
         return "Strong"
@@ -1157,6 +1394,33 @@ def _bid_value_confidence(count: int, basis: str) -> str:
     return "Low"
 
 
+def _model_value_confidence(mape: float, analog_count: int) -> str:
+    if mape <= 0.25 and analog_count >= 6:
+        return "Strong"
+    if mape <= 0.38 and analog_count >= 4:
+        return "Moderate"
+    return "Directional"
+
+
+def _cap_outlier_prediction(predicted: float, fallback: BidRecommendation, profile: BusinessProfile) -> float:
+    candidates = [
+        value
+        for value in (
+            fallback.low_bid,
+            fallback.high_bid,
+            fallback.median_award,
+            fallback.average_award,
+            profile.max_contract_value * 1.5 if profile.max_contract_value else 0.0,
+        )
+        if value > 0
+    ]
+    if not candidates:
+        return max(0.0, predicted)
+    upper = max(candidates) * 1.35
+    lower = min(candidates) * 0.45
+    return min(max(predicted, lower), upper)
+
+
 def _contract_type_label(type_family: str) -> str:
     labels = {
         "rfq": "RFQ/quotation",
@@ -1221,6 +1485,59 @@ def _award_value_context_for_awards(
         context["type_values"][type_family].append(value)
         context["all_fit_values"].append(value)
     return context
+
+
+def _bid_recommendation_from_model(
+    profile: BusinessProfile,
+    opportunity: EvaluatedOpportunity,
+    value_features: dict[str, float],
+    trained_model: TrainedMarketModel,
+    value_context: dict[str, Any],
+) -> BidRecommendation:
+    fallback = _bid_recommendation_from_context(profile, opportunity, value_context)
+    value_model = trained_model.value_model
+    value_summary = trained_model.value_summary or {}
+    if value_model is None or value_summary.get("status") != "trained":
+        fallback.source = "historical_value_fallback"
+        return fallback
+
+    predicted = math.expm1(
+        float(value_model.predict([[value_features.get(name, 0.0) for name in VALUE_FEATURE_NAMES]])[0])
+    )
+    rag = opportunity.rag_evidence
+    if rag.value_median:
+        predicted = predicted * 0.72 + rag.value_median * 0.28
+    predicted = _cap_outlier_prediction(predicted, fallback, profile)
+    mape = float(value_summary.get("mape") or 0.28)
+    uncertainty = max(0.16, min(0.55, mape + (0.06 if len(rag.analogs) < 4 else 0.0)))
+    low_bid = _round_bid_amount(predicted * (1.0 - uncertainty))
+    high_bid = _round_bid_amount(predicted * (1.0 + uncertainty))
+    recommended = _round_bid_amount(predicted)
+    evidence = [
+        (
+            f"Award-value model predicted ${recommended:,.0f} using {value_summary.get('mode', 'trained regression')} "
+            f"with holdout MAPE {mape:.1%}."
+        ),
+    ]
+    if rag.analogs:
+        evidence.append(
+            f"RAG supplied {len(rag.analogs)} analog(s); analog median ${rag.value_median:,.0f}."
+        )
+    if fallback.evidence:
+        evidence.append(f"Baseline fallback: {fallback.evidence[0]}")
+    return BidRecommendation(
+        source="trained_award_value_model",
+        recommended_bid=recommended,
+        low_bid=low_bid,
+        high_bid=high_bid,
+        confidence=_model_value_confidence(mape, len(rag.analogs)),
+        contract_type=fallback.contract_type,
+        historical_award_count=max(fallback.historical_award_count, len(rag.analogs)),
+        average_award=fallback.average_award,
+        median_award=fallback.median_award,
+        basis="award-value regression plus RAG analog distribution",
+        evidence=evidence,
+    )
 
 
 def _bid_recommendation_from_context(

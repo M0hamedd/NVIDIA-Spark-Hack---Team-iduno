@@ -29,12 +29,6 @@ const LOADING_PROFILE = {
   bad_fit_examples: []
 };
 
-const PRIORITY_LABELS = {
-  best_win_chance: "Best Chance",
-  best_fit: "Best Fit",
-  highest_value: "Best Value"
-};
-
 const state = {
   health: null,
   supportedProfiles: [],
@@ -78,19 +72,6 @@ function bindEvents() {
     if (input && input.matches('input[name="supportedProfile"]')) {
       switchProfile(input.value);
     }
-  });
-  document.querySelectorAll('input[name="priorityMode"]').forEach((input) => {
-    input.addEventListener("change", () => {
-      state.priorityMode = getPriorityMode();
-      if (state.scan) {
-        $("lastRun").textContent = `Re-ranking for ${PRIORITY_LABELS[state.priorityMode]}`;
-        runScan(false, {
-          busyMessage: `Re-ranking for ${PRIORITY_LABELS[state.priorityMode]}`,
-          doneMessage: `${PRIORITY_LABELS[state.priorityMode]} queue ready`,
-          toast: false
-        });
-      }
-    });
   });
 }
 
@@ -548,8 +529,8 @@ function renderOwner(result) {
     ? `${summary.recommendation}: ${summary.deadline}; ${shortText(summary.task, 78)}`
     : "No strong match found today";
   $("lastRun").textContent = result.as_of
-    ? `As of ${result.as_of} / ${PRIORITY_LABELS[getPriorityMode()]}`
-    : `Latest check / ${PRIORITY_LABELS[getPriorityMode()]}`;
+    ? `As of ${result.as_of}`
+    : "Latest check";
   $("summaryRecommendation").textContent = summary ? summary.recommendation : "No strong match";
   $("summaryDeadline").textContent = summary ? summary.deadline : "No active listing";
   $("summaryTask").textContent = summary ? summary.task : "See why we passed";
@@ -2123,8 +2104,7 @@ function cleanDisplayText(value) {
 }
 
 function getPriorityMode() {
-  const selected = document.querySelector('input[name="priorityMode"]:checked');
-  return selected ? selected.value : state.priorityMode;
+  return state.priorityMode;
 }
 
 function getSelectedProfileId() {

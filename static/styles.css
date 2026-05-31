@@ -365,8 +365,7 @@ button:disabled {
   white-space: nowrap;
 }
 
-.profile-control,
-.priority-control {
+.profile-control {
   display: flex;
   gap: 7px;
   min-width: 0;
@@ -375,8 +374,7 @@ button:disabled {
   border: 0;
 }
 
-.profile-control label,
-.priority-control label {
+.profile-control label {
   display: grid;
   grid-template-columns: 1fr;
   align-items: center;
@@ -390,8 +388,7 @@ button:disabled {
   font-weight: 780;
 }
 
-.profile-control input,
-.priority-control input {
+.profile-control input {
   position: absolute;
   inline-size: 1px;
   block-size: 1px;
@@ -400,11 +397,6 @@ button:disabled {
 
 .profile-control label {
   flex: 0 0 auto;
-}
-
-.priority-control label {
-  min-width: 58px;
-  text-align: center;
 }
 
 .profile-lens-copy {
@@ -437,16 +429,14 @@ button:disabled {
   font-weight: 720;
 }
 
-.profile-control label:has(input:checked),
-.priority-control label:has(input:checked) {
+.profile-control label:has(input:checked) {
   border-color: #bfd6b1;
   background: var(--green-soft);
   color: var(--green-dark);
   box-shadow: inset 0 -2px 0 var(--green);
 }
 
-.profile-control label:has(input:focus-visible),
-.priority-control label:has(input:focus-visible) {
+.profile-control label:has(input:focus-visible) {
   outline: 3px solid rgba(95, 149, 0, 0.25);
   outline-offset: 2px;
 }
@@ -1851,7 +1841,6 @@ button:disabled {
   }
 
   .profile-control,
-  .priority-control,
   .view-tabs {
     display: grid;
   }
@@ -1860,17 +1849,12 @@ button:disabled {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
-  .priority-control {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
   .view-tabs,
   .next-action-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .profile-control label,
-  .priority-control label {
+  .profile-control label {
     padding: 6px 5px;
   }
 
@@ -1948,7 +1932,6 @@ button:disabled {
 
   .topbar-controls,
   .profile-control,
-  .priority-control,
   .view-tabs,
   .system-strip {
     display: grid;
@@ -1961,14 +1944,9 @@ button:disabled {
   }
 
   .profile-control label,
-  .priority-control label,
   .tab-button,
   .lens-details > summary {
     width: 100%;
-  }
-
-  .priority-control {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .system-strip {

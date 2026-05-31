@@ -1,5 +1,10 @@
+--extra-index-url https://pypi.nvidia.com
+
 numpy==2.4.4
 scipy==1.17.1
 scikit-learn==1.8.0
 joblib==1.5.3
 threadpoolctl==3.6.0
+
+# DGX Spark RAPIDS/cuDF path. If the Spark image is CUDA 12, use cudf-cu12 instead.
+cudf-cu13==26.4.*; platform_system == "Linux"

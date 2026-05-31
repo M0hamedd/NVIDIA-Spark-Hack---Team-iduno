@@ -410,6 +410,209 @@ By the end of the day, the main demo should support:
 - Local model path or deterministic fallback path.
 - A demo script that clearly says this is not a chatbot wrapper.
 
+## Current Progress So Far
+
+Updated May 30, 2026. The project has moved from the original single-profile contract recommender into a much more complete **SoBid / Live Contract Radar** MVP: a local Toronto Open Data bid intelligence engine with three demo business lanes, deterministic bid/no-bid logic, historical award grounding, local ranker proof, NVIDIA/Nemotron hooks, a visual evidence UI, and demo/smoke/benchmark commands.
+
+### App Shape Now
+
+- The app still keeps the fast hackathon-friendly shape: `python app.py`, a static frontend in `static/`, local Python modules in `contract_radar/`, cached Toronto data in `data/cache`, and deterministic fallback behavior.
+- The backend exposes `/api/health`, `/api/scan`, `/api/simulate`, and `/api/approve`.
+- The frontend is an actual procurement dashboard rather than a chatbot or landing page: profile controls, priority mode, opportunity queue, detail inspector, evidence pipeline, judge metrics, skipped examples, approval packet flow, and visual status states.
+- Cached Toronto Open Data files are present for solicitations and awarded contracts, so the demo can run offline with `CONTRACT_RADAR_OFFLINE=1`.
+- Bundled dev sample data is now gated behind `CONTRACT_RADAR_ALLOW_SAMPLE_DATA=1`; normal demo scans are intended to use cached or live Toronto Open Data.
+
+### Agent 0: Spark MVP Runner And Integration Gate
+
+Implemented or added:
+
+- README now documents the fastest local/Spark path, cached-data path, NIM optional path, smoke test, benchmark, bid-engine evaluation, and ranker training commands.
+- `scripts/smoke_api.py` validates the running app through `/api/health`, `/api/scan`, `/api/simulate`, and `/api/approve`.
+- The app supports deterministic fallback when local NIM/Nemotron is unavailable.
+- `app.py --with-nemotron` and `app.py --nemotron-setup-only` exist for the managed local Nemotron/llama.cpp setup path.
+- `.gitignore` was updated for local runtime artifacts and demo cache/model output hygiene.
+
+Still needs final gate verification:
+
+- Run the complete acceptance gate on the target DGX Spark box, not just local development.
+- Confirm the printed local URL and offline cache path on the final presentation machine.
+- Confirm the app starts cleanly after any final file moves or dependency installs.
+
+### Agent 0A: NVIDIA Stack And Performance Proof
+
+Implemented or added:
+
+- `/api/health` reports `nvidia_stack_active`, `active_nvidia_tools`, `rapids_cudf_available`, `rapids_mode`, `nim_mode`, ranker status, supported profiles, and the current Spark story.
+- `contract_radar/gpu.py` detects RAPIDS/cuDF availability and reports Python fallback when it is not present.
+- Scan metrics now include records/sec, shortlist reduction, model calls attempted/successful/avoided, briefs generated, label changes after extraction, active NVIDIA tools, RAPIDS mode, NIM mode, data source statuses, and warnings.
+- `scripts/benchmark_pipeline.py` reports the local pipeline proof, including throughput, shortlist reduction, model-call avoidance, data-source status, active NVIDIA path, and insight scorecard.
+- `--require-nvidia` intentionally fails when no RAPIDS/cuDF or NIM/Nemotron path is active, so fallback is not accidentally presented as the NVIDIA story.
+- Tests cover benchmark output and the proof-gate failure path.
+
+Still needs final gate verification:
+
+- Run on actual NVIDIA hardware with RAPIDS/cuDF or local NIM active so the judged demo can show a real NVIDIA path instead of fallback-only proof.
+- If RAPIDS/cuDF is installed on Spark, confirm parity with the Python fallback using the final cached/live dataset.
+
+### Agent 1: Dataset Lane Profiles
+
+Implemented or added:
+
+- Default profile is now `road_civil_infrastructure`.
+- Supported demo lanes now include:
+  - `road_civil_infrastructure`
+  - `parks_landscape`
+  - `professional_engineering_design`
+- Profiles include lane basis, YTD solicitation hits, exclusive best-fit hits, top divisions, good-fit examples, bad-fit examples, skills, ready documents, missing capabilities, capacity assumptions, and active pursuit limits.
+- The README, demo script, health endpoint, and UI all tell the three-profile story.
+- Fallback/dev sample data has been retargeted around the three lanes and includes false-positive examples.
+- Tests cover supported profiles and data behavior.
+
+Remaining:
+
+- Keep checking live/cached Toronto records for enough compelling examples in each lane before the final run.
+
+### Agent 2: Decision Labels And Priority Modes
+
+Implemented or added:
+
+- Public recommendation labels are now `Pursue`, `Review`, `Monitor`, and `Skip`.
+- Priority modes exist end to end: `best_win_chance`, `best_fit`, and `highest_value`.
+- Default priority mode is `best_win_chance`.
+- Priority mode changes ordering while deterministic eligibility gates continue to own the decision.
+- Capacity-aware bid warnings are included through pursuit load, response capacity, execution capacity, and recommended action.
+- The app can show no strong bids through empty/low-actionable result states instead of forcing a fake recommendation.
+- Tests cover matching, simulator behavior, and service metrics.
+
+Remaining:
+
+- Re-run the final UI manually in all three priority modes and verify the ordering difference is obvious enough for judges.
+
+### Agent 2A: Bid Fitness Engine And Requirement Extraction
+
+Implemented or added:
+
+- The matcher now evaluates current solicitations with deterministic bid-fitness rules instead of naive keyword matching.
+- Each evaluated opportunity carries structured decision evidence: matched terms, missing requirements, rejection reasons, historical evidence, capacity assessment, scorecard labels, and a bid-fitness trace.
+- Requirement extraction and Nemotron enrichment are visible for shortlisted opportunities when NIM is available, with deterministic fallback when it is not.
+- NIM preflight and fallback behavior prevent scans from stalling when no local model endpoint is running.
+- Owner-ready artifacts now include bid/no-bid brief content, required-document checklist, clarification questions, next steps, and approval-packet-ready wording when Nemotron can produce validated output.
+- False-positive rejection logic is explicit for misleading categories such as software, legal, food, wrong-lane construction, professional-only work for contractors, construction-only work for design firms, and generic maintenance/design terms.
+- Tests cover Nemotron fallback, misleading matches, packet generation, and service behavior.
+
+Remaining:
+
+- On the final Spark machine, prove the local model path generates at least one owner-ready brief before claiming live Nemotron drafting in the pitch.
+
+### Agent 3: Historical Opportunity Evidence
+
+Implemented or added:
+
+- Historical awarded contracts are loaded alongside current solicitations.
+- The service returns a historical summary for the selected business profile.
+- Recommended opportunities include similar-award grounding, award bands, division/buyer patterns, and why the history matters.
+- Historical summaries support the demo line that the business could have pursued similar contracts in the past.
+- `contract_radar/history.py` and related tests cover historical retrieval and value parsing.
+
+Remaining:
+
+- Inspect the final demo examples and choose the strongest historical-award evidence beat for the script.
+
+### Agent 4: Readable UI And Judge Evidence Pipeline
+
+Implemented or added:
+
+- `static/index.html`, `static/app.js`, and `static/styles.css` have been upgraded into a modern static dashboard.
+- The first screen is the actual app, not a marketing page.
+- The UI includes profile switching, priority controls, live scan, simulate next day, opportunity queue, selected-opportunity detail, skipped examples, judge evidence, technical proof, approval packet, and toast/status feedback.
+- Evidence View now includes a multi-stage pipeline and technical-depth proof rather than a plain text blob.
+- Judge-facing metrics include active path, records/sec, model calls avoided, false positives skipped, historical opportunity evidence, similar awards, and backtest/insight data.
+- Local CSS is checked in, including `static/vendor-modern-normalize.css`, so the demo does not depend on a remote CDN for the core UI.
+- `static/sobid-logo.svg` adds a lightweight product identity.
+
+Remaining:
+
+- Run final browser QA on desktop and laptop/mobile widths for wrapping, contrast, sticky controls, long solicitation names, and no overlapping UI.
+- Confirm the frontend remains readable with live/cached records that have unusually long buyer names or descriptions.
+
+### Agent 5: Simulate Next Day Demo Moment
+
+Implemented or added:
+
+- Simulation is now framed as a daily monitor / next-day alert instead of a generic month-long toy simulation.
+- The simulator uses current scan results and creates timeline events that explain what the monitor surfaced or skipped.
+- The UI exposes the simulation as a demo control and reflects monitor output in the dashboard.
+- Tests cover simulator messages and next-day behavior.
+
+Remaining:
+
+- Pick the best profile/opportunity pairing for the live demo so the simulated alert lands cleanly in the story.
+
+### Agent 5A: Backtest And Insight Scorecard
+
+Implemented or added:
+
+- `contract_radar/backtest.py` produces an insight scorecard from evaluated opportunities and historical summary.
+- The scorecard reports evaluated count, actionable count, realistic historical opportunities, false positives skipped, capacity downgrades, similar awards grounded, estimated bid-review hours saved, false-positive categories, capacity examples, and a top insight sentence.
+- `/api/scan`, Evidence View, and `scripts/benchmark_pipeline.py` surface the insight scorecard.
+- `scripts/evaluate_bid_engine.py --offline --profiles all` compares naive keyword candidates against the bid engine and reports false positives skipped, shortlist reduction, top opportunity, and estimated review hours saved.
+- Tests cover the backtest/scorecard and bid-engine evaluation proof.
+
+Remaining:
+
+- Run the final evaluation command after the last data/cache refresh and copy the strongest result into the demo talking points.
+
+### Agent 6: Demo Script And Docs Alignment
+
+Implemented or added:
+
+- `README.md` now describes the three-profile Toronto Open Data/Spark story, local ranker, deterministic filtering, approval workflow, NIM/Nemotron path, cache behavior, environment variables, test commands, benchmark proof, and dataset limits.
+- `DEMO_SCRIPT.md` was updated around the intended pitch beats: not a chatbot, live/cache status, evidence view, DGX/Nemotron status, and approval flow.
+- `Resources.md` remains the reference for DGX Spark/NVIDIA resources.
+- This `PLAN.md` now includes the progress ledger so the plan explains both the target and the work already completed.
+
+Remaining:
+
+- After final verification, update README/demo script with actual benchmark numbers from the Spark machine.
+
+### Agent 7: Bid-Fit Ranker And Fine-Tuning Stretch
+
+Implemented or added:
+
+- `contract_radar/ranker.py` adds a local scikit-learn award-history market model.
+- The ranker builds temporal award-history examples, trains a guarded logistic-regression model, reports precision@10, top-decile lift, average precision, and feature-level market signals.
+- `apply_market_intelligence` attaches market-fit evidence to evaluated opportunities and helps order safe candidates without overriding deterministic hard blockers.
+- `scripts/train_bid_ranker.py --offline --profiles all` trains/evaluates local bid-fit and market-ranker proof and writes `data/output/bid_ranker_model.json`.
+- The README now frames this as local procurement intelligence, not an unverified LLM fine-tune.
+- Tests cover ranker training/evaluation behavior.
+
+Remaining:
+
+- Treat this as a proof-backed local ranker, not a full LLM fine-tuning claim.
+- Only cite the final ranker metrics after running the training script on the final cached/live dataset.
+
+### Verification Already Represented In The Repo
+
+Current verification assets include:
+
+- `python -m unittest`
+- `node --check static/app.js`
+- `python scripts/smoke_api.py --base-url http://127.0.0.1:8080`
+- `python scripts/benchmark_pipeline.py --offline --repeat 100`
+- `python scripts/benchmark_pipeline.py --repeat 1 --require-nvidia`
+- `python scripts/evaluate_bid_engine.py --offline --profiles all`
+- `python scripts/train_bid_ranker.py --offline --profiles all`
+
+The final MVP should not be called ready until those commands pass in the final demo environment, with the NVIDIA-required command passing only when the actual NVIDIA path is active.
+
+### Current Highest-Risk Remaining Items
+
+- **NVIDIA proof:** fallback mode is documented and useful, but the judged Spark demo needs a visible active NVIDIA path: RAPIDS/cuDF or local NIM/Nemotron.
+- **Final browser QA:** the UI has been heavily upgraded and needs one last visual pass at multiple widths with real cached data.
+- **Live/cached data confidence:** the demo should use cached Toronto Open Data, not bundled fixtures, and the selected examples should be checked before presentation.
+- **Final numbers:** benchmark, evaluation, ranker, and smoke-test outputs should be rerun on the final machine and reflected in the demo script.
+- **No overclaiming:** do not claim full procurement coverage, autonomous bidding, or LLM fine-tuning unless the final verified artifact proves it.
+
 ## Immediate MVP Agent Split
 
 The current codebase was built against an older single-profile plan. The first agent wave should modify that existing implementation rather than starting over. The goal is to get a credible MVP running on DGX Spark as soon as possible.

@@ -154,6 +154,55 @@ class ServiceMetricsTests(unittest.TestCase):
         self.assertFalse(second["metrics"].get("scan_result_cache_hit", False))
         self.assertEqual(second["business_profile"]["name"], "Variant Civil Works")
 
+    def test_listing_briefs_are_limited_to_contract_inbox(self) -> None:
+        captured_document_numbers: list[str] = []
+
+        def passthrough_briefs(profile, opportunities):
+            captured_document_numbers.extend(
+                item.solicitation.document_number for item in opportunities
+            )
+            return opportunities, "deterministic_fallback", {
+                "opportunity_count": len(opportunities),
+                "shortlisted_for_model": len(opportunities),
+                "model_calls_attempted": 0,
+                "model_calls_successful": 0,
+                "model_calls_failed": 0,
+                "briefs_generated": 0,
+                "label_changes_after_extraction": 0,
+                "model_calls_avoided_by_preflight": len(opportunities),
+                "model_calls_avoided_by_failure": 0,
+                "listing_extraction_cache_hits": 0,
+                "model_latency_ms": 0,
+                "nim_preflight": {"available": False, "reason": "test"},
+            }
+
+        with patch.dict(
+            os.environ,
+            {
+                "CONTRACT_RADAR_OFFLINE": "1",
+                "CONTRACT_RADAR_DISABLE_NEMOTRON": "1",
+            },
+            clear=False,
+        ):
+            service = ContractRadarService()
+            with patch(
+                "contract_radar.nemotron.enrich_top_opportunities_with_stats",
+                side_effect=passthrough_briefs,
+            ):
+                scan = service.scan({"profile_id": "road_civil_infrastructure"})
+
+        inbox_document_numbers = [
+            item["solicitation"]["document_number"]
+            for item in [*scan["top_opportunities"], *scan["watchlist"]]
+        ]
+        skipped_document_numbers = {
+            item["solicitation"]["document_number"] for item in scan["skipped"]
+        }
+
+        self.assertEqual(captured_document_numbers, inbox_document_numbers)
+        self.assertLessEqual(len(captured_document_numbers), 13)
+        self.assertFalse(set(captured_document_numbers) & skipped_document_numbers)
+
 
 if __name__ == "__main__":
     unittest.main()

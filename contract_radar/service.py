@@ -150,13 +150,13 @@ class ContractRadarService:
         optimizer_status = cuopt_status()
         evaluated = optimize_bid_portfolio(profile, evaluated, priority_mode=priority_mode)
         stage_start = mark_stage("portfolio_optimization", stage_start)
-        extraction_candidates = [
-            item for item in evaluated if item.label != "Skip"
-        ][:40]
+        top_inbox, watch_inbox = _contract_inbox_items(evaluated)
+        extraction_candidates = [*top_inbox, *watch_inbox]
         enriched, nemotron_mode, nemotron_stats = enrich_top_opportunities_with_stats(profile, extraction_candidates)
         stage_start = mark_stage("listing_brief_enrichment", stage_start)
         enriched_by_doc = {item.solicitation.document_number: item for item in enriched}
         evaluated = [enriched_by_doc.get(item.solicitation.document_number, item) for item in evaluated]
+        top_inbox, watch_inbox = _contract_inbox_items(evaluated)
         skipped = _prioritized_skips(evaluated)
         scorecard = scorecard_from_evaluated(profile, evaluated, historical_summary)
         mark_stage("scorecard", stage_start)
@@ -187,8 +187,8 @@ class ContractRadarService:
             "as_of": today.isoformat(),
             "priority_mode": priority_mode,
             "historical_summary": historical_summary,
-            "top_opportunities": [item.to_dict() for item in evaluated if item.label == "Pursue"][:5],
-            "watchlist": [item.to_dict() for item in evaluated if item.label in {"Review", "Monitor"}][:8],
+            "top_opportunities": [item.to_dict() for item in top_inbox],
+            "watchlist": [item.to_dict() for item in watch_inbox],
             "skipped": [item.to_dict() for item in skipped[:10]],
             "all_evaluated": [item.to_dict() for item in evaluated[:40]],
             "market_model": market_model.summary,
@@ -544,6 +544,14 @@ def _prioritized_skips(evaluated: list[EvaluatedOpportunity]) -> list[EvaluatedO
             item.solicitation.document_number,
         ),
     )
+
+
+def _contract_inbox_items(
+    evaluated: list[EvaluatedOpportunity],
+) -> tuple[list[EvaluatedOpportunity], list[EvaluatedOpportunity]]:
+    top = [item for item in evaluated if item.label == "Pursue"][:5]
+    watch = [item for item in evaluated if item.label in {"Review", "Monitor"}][:8]
+    return top, watch
 
 
 def _first_rag_mode(evaluated: list[EvaluatedOpportunity]) -> str:

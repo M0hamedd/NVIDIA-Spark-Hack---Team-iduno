@@ -413,8 +413,8 @@ button:disabled {
 
 .profile-lens-copy strong {
   display: -webkit-box;
-  min-height: 2.1em;
-  line-height: 1.05;
+  min-height: 2.28em;
+  line-height: 1.14;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
@@ -1868,7 +1868,7 @@ button:disabled {
   }
 
   .profile-lens-copy strong {
-    font-size: 0.78rem;
+    font-size: 0.7rem;
   }
 
   .decision-ribbon,

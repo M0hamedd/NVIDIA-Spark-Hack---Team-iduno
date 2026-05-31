@@ -90,6 +90,12 @@ class ContractRadarService:
         from contract_radar.revenue_simulation import attach_revenue_simulations
 
         start = time.perf_counter()
+        stage_timings_ms: dict[str, int] = {}
+
+        def mark_stage(stage_name: str, stage_start: float) -> float:
+            stage_timings_ms[stage_name] = int((time.perf_counter() - stage_start) * 1000)
+            return time.perf_counter()
+
         payload = payload or {}
         profile = profile_from_payload(payload)
         today = _payload_date(payload) or date.today()
@@ -108,8 +114,11 @@ class ContractRadarService:
                         self._scan_result_cache[cache_key] = copy.deepcopy(precomputed)
                     self._last_scan = precomputed
                 return precomputed
+        stage_start = time.perf_counter()
         data_bundle = self._data_bundle(refresh=bool(payload.get("refresh")))
+        stage_start = mark_stage("load_data", stage_start)
         historical_summary = summarize_past_opportunities(profile, data_bundle.awards).to_dict()
+        stage_start = mark_stage("summarize_history", stage_start)
         evaluated = evaluate_opportunities(
             profile,
             data_bundle.solicitations,
@@ -117,19 +126,23 @@ class ContractRadarService:
             today=today,
             priority_mode=priority_mode,
         )
+        stage_start = mark_stage("evaluate_opportunities", stage_start)
         evaluated = attach_rag_evidence(
             profile,
             evaluated,
             data_bundle.awards,
             retriever=self._rag_retriever_for(profile, data_bundle.awards),
         )
+        stage_start = mark_stage("attach_rag_evidence", stage_start)
         extraction_candidates = [
             item for item in evaluated if item.label != "Skip"
         ][:40]
         enriched, nemotron_mode, nemotron_stats = enrich_top_opportunities_with_stats(profile, extraction_candidates)
+        stage_start = mark_stage("nemotron_enrichment", stage_start)
         enriched_by_doc = {item.solicitation.document_number: item for item in enriched}
         evaluated = [enriched_by_doc.get(item.solicitation.document_number, item) for item in evaluated]
         market_model = self._market_model_for(profile, data_bundle.awards)
+        stage_start = mark_stage("market_model", stage_start)
         evaluated = apply_market_intelligence(
             profile=profile,
             opportunities=evaluated,
@@ -138,13 +151,27 @@ class ContractRadarService:
             today=today,
             priority_mode=priority_mode,
         )
+        stage_start = mark_stage("apply_market_intelligence", stage_start)
         evaluated = attach_revenue_simulations(profile, evaluated)
+        stage_start = mark_stage("revenue_simulation", stage_start)
         optimizer_status = cuopt_status()
         evaluated = optimize_bid_portfolio(profile, evaluated, priority_mode=priority_mode)
+        stage_start = mark_stage("portfolio_optimization", stage_start)
         skipped = _prioritized_skips(evaluated)
         scorecard = scorecard_from_evaluated(profile, evaluated, historical_summary)
+        mark_stage("scorecard", stage_start)
         metrics = _metrics(data_bundle, evaluated, start, nemotron_mode, nemotron_stats, market_model.summary)
         metrics_dict = metrics.to_dict()
+        metrics_dict["stage_timings_ms"] = stage_timings_ms
+        metrics_dict["nemotron_latency_ms"] = int(nemotron_stats.get("model_latency_ms") or 0)
+        metrics_dict["listing_extraction_cache_hits"] = int(nemotron_stats.get("listing_extraction_cache_hits") or 0)
+        metrics_dict["local_pipeline_ms_excluding_nemotron"] = max(
+            0,
+            int(metrics_dict.get("runtime_ms") or 0) - int(metrics_dict["nemotron_latency_ms"]),
+        )
+        local_runtime_seconds = max(metrics_dict["local_pipeline_ms_excluding_nemotron"] / 1000, 0.001)
+        local_records = int(metrics_dict.get("solicitations_loaded") or 0) + int(metrics_dict.get("awards_loaded") or 0)
+        metrics_dict["local_records_per_second_excluding_nemotron"] = round(local_records / local_runtime_seconds, 2)
         metrics_dict["priority_mode"] = priority_mode
         metrics_dict["rag_mode"] = _first_rag_mode(evaluated)
         metrics_dict["value_model_mode"] = (market_model.value_summary or {}).get("mode", "historical_average")
@@ -377,6 +404,7 @@ def _metrics(
         max(0, len(evaluated) - shortlisted_for_model)
         + int(nemotron_stats.get("model_calls_avoided_by_preflight") or 0)
         + int(nemotron_stats.get("model_calls_avoided_by_failure") or 0)
+        + int(nemotron_stats.get("listing_extraction_cache_hits") or 0)
     )
     briefs_generated = int(nemotron_stats.get("briefs_generated") or 0)
     label_changes_after_extraction = int(nemotron_stats.get("label_changes_after_extraction") or 0)

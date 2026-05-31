@@ -217,10 +217,19 @@ def _enrich_top_opportunities(
             enriched.append(fallback_item)
             continue
         try:
-            stats["model_calls_attempted"] += 1
+            cache_key = _listing_extraction_cache_key(opportunity)
+            listing_cache_hit = cache_key in _NIM_LISTING_EXTRACTION_CACHE
+            if listing_cache_hit:
+                stats["listing_extraction_cache_hits"] += 1
+            else:
+                stats["model_calls_attempted"] += 1
+                model_start = time.perf_counter()
             extraction, brief = _extract_with_nim(profile, opportunity)
+            if not listing_cache_hit:
+                stats["model_latency_ms"] += int((time.perf_counter() - model_start) * 1000)
             enriched_item = _with_extraction(profile, opportunity, extraction, brief)
-            stats["model_calls_successful"] += 1
+            if not listing_cache_hit:
+                stats["model_calls_successful"] += 1
             stats["briefs_generated"] += int(bool(enriched_item.opportunity_brief.owner_summary))
             stats["label_changes_after_extraction"] += int(
                 bool(enriched_item.pre_extraction_label)
@@ -1137,6 +1146,8 @@ def _empty_enrichment_stats(opportunity_count: int) -> dict[str, Any]:
         "label_changes_after_extraction": 0,
         "model_calls_avoided_by_preflight": 0,
         "model_calls_avoided_by_failure": 0,
+        "listing_extraction_cache_hits": 0,
+        "model_latency_ms": 0,
         "model_failure_reason": "",
         "nim_preflight": {"available": False, "reason": "not_checked"},
     }

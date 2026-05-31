@@ -58,6 +58,8 @@ class ServiceMetricsTests(unittest.TestCase):
         self.assertGreater(len(scan["insight_scorecard"]["false_positive_categories"]), 0)
         first = (scan["top_opportunities"] or scan["watchlist"] or scan["all_evaluated"])[0]
         self.assertEqual(first["market_fit"]["source"], "sklearn_award_history")
+        self.assertEqual(first["bid_recommendation"]["source"], "historical_contract_type_average")
+        self.assertGreater(first["bid_recommendation"]["recommended_bid"], 0)
 
 
 if __name__ == "__main__":

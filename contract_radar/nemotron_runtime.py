@@ -40,13 +40,13 @@ def ensure_local_nemotron(setup_only: bool = False) -> subprocess.Popen[bytes] |
         return None
 
     if platform.system().lower() != "linux":
-        raise NemotronRuntimeError("--with-nemotron setup is supported on Linux DGX Spark only.")
+        raise NemotronRuntimeError("Managed Nemotron startup is supported on Linux DGX Spark only.")
 
     _ensure_llama_cpp(config)
     _ensure_model(config)
 
     if setup_only:
-        print("Nemotron setup complete. Start the app with `python3 app.py --with-nemotron`.")
+        print("Nemotron setup complete. Start the app with `python3 app.py`.")
         return None
 
     return _start_llama_server(config)

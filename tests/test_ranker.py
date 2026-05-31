@@ -14,6 +14,7 @@ from contract_radar.profiles import get_supported_profile
 from contract_radar.ranker import (
     build_historical_award_examples,
     build_market_award_examples,
+    estimate_bid_recommendation,
     extract_ranker_features,
     require_sklearn,
 )
@@ -140,6 +141,38 @@ class RankerTests(unittest.TestCase):
         self.assertGreater(second.features["prior_supplier_profile_fit_log"], 0.0)
         self.assertGreater(second.features["prior_segment_awards_log"], 0.0)
 
+    def test_bid_recommendation_uses_contract_type_average_revenue_only(self) -> None:
+        profile = get_supported_profile("road_civil_infrastructure")
+        awards = [
+            _award_with_value("AWD-BID-1", 200000),
+            _award_with_value("AWD-BID-2", 300000),
+            _award_with_value("AWD-BID-3", 400000),
+            _award_with_value("AWD-BID-4", 950000, solicitation_type="Request for Proposal"),
+        ]
+        opportunity = evaluate_opportunities(
+            profile,
+            [
+                _solicitation(
+                    "BID-ROAD",
+                    "Road repairs, sidewalk repairs, curb repair, asphalt paving, and traffic staging.",
+                    deadline=date(2026, 6, 20),
+                )
+            ],
+            awards,
+            TODAY,
+        )[0]
+
+        recommendation = estimate_bid_recommendation(profile, opportunity, awards, TODAY)
+        payload = recommendation.to_dict()
+
+        self.assertEqual(payload["source"], "historical_contract_type_average")
+        self.assertEqual(payload["recommended_bid"], 300000)
+        self.assertEqual(payload["average_award"], 300000)
+        self.assertEqual(payload["contract_type"], "tender")
+        self.assertEqual(payload["historical_award_count"], 3)
+        self.assertTrue(any("average $300,000" in line for line in payload["evidence"]))
+        self.assertFalse(any("profit" in line.lower() for line in payload["evidence"]))
+
     def test_require_sklearn_has_clear_install_message_when_missing(self) -> None:
         real_import = __import__
 
@@ -210,6 +243,23 @@ def _award() -> AwardRecord:
         category="Construction Services",
         supplier="Road Co",
         award_value=650000,
+        award_date=TODAY,
+        division="Transportation Services",
+        description="Road repairs, sidewalk repairs, curb repair, asphalt paving, and traffic staging.",
+    )
+
+
+def _award_with_value(
+    document_number: str,
+    value: float,
+    solicitation_type: str = "Request for Tender",
+) -> AwardRecord:
+    return AwardRecord(
+        document_number=document_number,
+        solicitation_type=solicitation_type,
+        category="Construction Services",
+        supplier="Road Co",
+        award_value=value,
         award_date=TODAY,
         division="Transportation Services",
         description="Road repairs, sidewalk repairs, curb repair, asphalt paving, and traffic staging.",

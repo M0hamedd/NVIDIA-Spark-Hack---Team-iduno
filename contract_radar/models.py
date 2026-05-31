@@ -406,6 +406,24 @@ class MarketFitSignal:
 
 
 @dataclass
+class BidRecommendation:
+    source: str = "not_estimated"
+    recommended_bid: float = 0.0
+    low_bid: float = 0.0
+    high_bid: float = 0.0
+    confidence: str = "Unknown"
+    contract_type: str = ""
+    historical_award_count: int = 0
+    average_award: float = 0.0
+    median_award: float = 0.0
+    basis: str = ""
+    evidence: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
 class CapacityAssessment:
     pursuit_load: str = "Clear"
     response_capacity: str = "Enough Time"
@@ -447,6 +465,7 @@ class EvaluatedOpportunity:
     requirements: RequirementExtraction = field(default_factory=RequirementExtraction)
     opportunity_brief: OpportunityBrief = field(default_factory=OpportunityBrief)
     market_fit: MarketFitSignal = field(default_factory=MarketFitSignal)
+    bid_recommendation: BidRecommendation = field(default_factory=BidRecommendation)
     capacity_assessment: CapacityAssessment = field(default_factory=CapacityAssessment)
     bid_fitness_trace: BidFitnessTrace = field(default_factory=BidFitnessTrace)
     nemotron_summary: str = ""
@@ -461,6 +480,7 @@ class EvaluatedOpportunity:
         data["opportunity_brief"] = self.opportunity_brief.to_dict()
         data["nemotron_brief"] = self.opportunity_brief.to_dict()
         data["market_fit"] = self.market_fit.to_dict()
+        data["bid_recommendation"] = self.bid_recommendation.to_dict()
         data["capacity_assessment"] = self.capacity_assessment.to_dict()
         data["bid_fitness_trace"] = self.bid_fitness_trace.to_dict()
         data["label_changed_by_extraction"] = bool(

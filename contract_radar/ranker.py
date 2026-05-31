@@ -5,13 +5,20 @@ import hashlib
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass
 from datetime import date
-from statistics import median
+from statistics import mean, median
 from typing import Any
 
 from contract_radar.backtest import looks_like_false_positive
 from contract_radar.history import _profile_award_fit, meaningful_terms
 from contract_radar.matcher import evaluate_opportunities
-from contract_radar.models import AwardRecord, BusinessProfile, EvaluatedOpportunity, MarketFitSignal, Solicitation
+from contract_radar.models import (
+    AwardRecord,
+    BidRecommendation,
+    BusinessProfile,
+    EvaluatedOpportunity,
+    MarketFitSignal,
+    Solicitation,
+)
 
 
 ACTIONABLE_TRAINING_LABELS = {"Pursue", "Review"}
@@ -302,17 +309,33 @@ def apply_market_intelligence(
     priority_mode: str = "best_win_chance",
 ) -> list[EvaluatedOpportunity]:
     context = _market_context_for_awards(profile, awards, today)
+    value_context = _award_value_context_for_awards(profile, awards, today)
     model = trained_model.model
     for opportunity in opportunities:
         features = extract_market_opportunity_features(profile, opportunity, context)
         score = float(model.predict_proba([[features.get(name, 0.0) for name in MARKET_FEATURE_NAMES]])[0][1])
         signal = _market_signal_from_score(opportunity, features, score, trained_model)
         opportunity.market_fit = signal
+        opportunity.bid_recommendation = _bid_recommendation_from_context(profile, opportunity, value_context)
         _attach_market_signal_to_trace(opportunity, signal)
+        _attach_bid_recommendation_to_trace(opportunity)
 
     return sorted(
         opportunities,
         key=lambda item: _market_sort_key(item, priority_mode),
+    )
+
+
+def estimate_bid_recommendation(
+    profile: BusinessProfile,
+    opportunity: EvaluatedOpportunity,
+    awards: list[AwardRecord],
+    today: date,
+) -> BidRecommendation:
+    return _bid_recommendation_from_context(
+        profile,
+        opportunity,
+        _award_value_context_for_awards(profile, awards, today),
     )
 
 
@@ -1038,6 +1061,22 @@ def _attach_market_signal_to_trace(opportunity: EvaluatedOpportunity, signal: Ma
         opportunity.reasons.append(message)
 
 
+def _attach_bid_recommendation_to_trace(opportunity: EvaluatedOpportunity) -> None:
+    recommendation = opportunity.bid_recommendation
+    if not recommendation or recommendation.recommended_bid <= 0:
+        return
+    amount = f"${recommendation.recommended_bid:,.0f}"
+    message = (
+        f"Revenue bid guidance: bid around {amount} from "
+        f"{recommendation.contract_type} historical award averages."
+    )
+    if message not in opportunity.bid_fitness_trace.positive_signals:
+        opportunity.bid_fitness_trace.positive_signals.append(message)
+    opportunity.bid_fitness_trace.scorecard_labels["Bid Amount"] = amount
+    if opportunity.label != "Skip" and message not in opportunity.reasons:
+        opportunity.reasons.append(message)
+
+
 def _market_sort_key(item: EvaluatedOpportunity, priority_mode: str) -> tuple[object, ...]:
     return (
         _decision_order(item.label),
@@ -1052,7 +1091,12 @@ def _market_priority_score(item: EvaluatedOpportunity, priority_mode: str) -> fl
     if priority_mode == "best_fit":
         return item.rank_score + market_score * 0.25
     if priority_mode == "highest_value":
-        value = item.historical.award_median or item.historical.award_max or 0
+        value = (
+            item.bid_recommendation.recommended_bid
+            or item.historical.award_median
+            or item.historical.award_max
+            or 0
+        )
         return min(value / 10000, 250) + market_score * 0.3 + item.rank_score * 0.2
     return item.rank_score * 0.45 + market_score + _decision_bonus(item.label)
 
@@ -1075,6 +1119,55 @@ def _decision_bonus(label: str) -> int:
     }.get(label, 0)
 
 
+def _percentile(values: list[float], quantile: float) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    if len(ordered) == 1:
+        return ordered[0]
+    position = (len(ordered) - 1) * min(1.0, max(0.0, quantile))
+    lower = math.floor(position)
+    upper = math.ceil(position)
+    if lower == upper:
+        return ordered[int(position)]
+    fraction = position - lower
+    return ordered[lower] * (1 - fraction) + ordered[upper] * fraction
+
+
+def _round_bid_amount(value: float) -> float:
+    amount = max(0.0, float(value or 0.0))
+    if amount <= 0:
+        return 0.0
+    if amount < 100000:
+        increment = 1000
+    elif amount < 1000000:
+        increment = 5000
+    else:
+        increment = 10000
+    return float(round(amount / increment) * increment)
+
+
+def _bid_value_confidence(count: int, basis: str) -> str:
+    if count >= 8 and "division" in basis:
+        return "Strong"
+    if count >= 5:
+        return "Moderate"
+    if count >= 3:
+        return "Directional"
+    return "Low"
+
+
+def _contract_type_label(type_family: str) -> str:
+    labels = {
+        "rfq": "RFQ/quotation",
+        "rft": "tender",
+        "tender": "tender",
+        "rfp": "proposal",
+        "rfsq": "supplier qualification",
+    }
+    return labels.get(type_family, type_family or "contract type")
+
+
 def _new_market_context() -> dict[str, Any]:
     return {
         "segment_awards": Counter(),
@@ -1085,6 +1178,134 @@ def _new_market_context() -> dict[str, Any]:
         "supplier_profile_fit_awards": Counter(),
         "buyer_awards": Counter(),
     }
+
+
+def _award_value_context_for_awards(
+    profile: BusinessProfile,
+    awards: list[AwardRecord],
+    today: date,
+) -> dict[str, Any]:
+    context: dict[str, Any] = {
+        "segment_values": defaultdict(list),
+        "type_category_values": defaultdict(list),
+        "type_values": defaultdict(list),
+        "all_fit_values": [],
+    }
+    seen: set[str] = set()
+    for award in sorted(
+        awards,
+        key=lambda item: (
+            item.award_date or date.min,
+            item.document_number,
+            item.supplier,
+            item.award_value,
+        ),
+    ):
+        if award.award_value <= 0:
+            continue
+        if award.award_date and award.award_date > today:
+            continue
+        award_key = _market_award_key(award)
+        if award_key in seen:
+            continue
+        seen.add(award_key)
+        if _profile_award_fit(profile, award)[0] <= 0:
+            continue
+
+        value = float(award.award_value)
+        type_family = _type_family(award.solicitation_type)
+        category_family = _category_family(award.category)
+        segment = _market_segment_key(award)
+        context["segment_values"][segment].append(value)
+        context["type_category_values"][(category_family, type_family)].append(value)
+        context["type_values"][type_family].append(value)
+        context["all_fit_values"].append(value)
+    return context
+
+
+def _bid_recommendation_from_context(
+    profile: BusinessProfile,
+    opportunity: EvaluatedOpportunity,
+    context: dict[str, Any],
+) -> BidRecommendation:
+    solicitation = opportunity.solicitation
+    type_family = _type_family(solicitation.solicitation_type)
+    category_family = _category_family(solicitation.category)
+    segment_key = _market_segment_key_from_values(
+        solicitation.category,
+        solicitation.solicitation_type,
+        solicitation.division,
+    )
+    candidates = [
+        ("same category, contract type, and division", context["segment_values"][segment_key]),
+        ("same category and contract type", context["type_category_values"][(category_family, type_family)]),
+        ("same contract type", context["type_values"][type_family]),
+        ("matched profile award history", context["all_fit_values"]),
+    ]
+
+    basis = ""
+    values: list[float] = []
+    for candidate_basis, candidate_values in candidates:
+        clean_values = sorted(float(value) for value in candidate_values if float(value) > 0)
+        if len(clean_values) >= 3:
+            basis = candidate_basis
+            values = clean_values
+            break
+
+    if not values:
+        values = sorted(
+            value
+            for value in [
+                opportunity.historical.award_min,
+                opportunity.historical.award_median,
+                opportunity.historical.award_max,
+            ]
+            if value > 0
+        )
+        basis = "similar award comparison" if values else ""
+
+    if not values:
+        return BidRecommendation(
+            evidence=["No historical award values were strong enough to suggest a bid amount."],
+        )
+
+    average_award = float(mean(values))
+    median_award = float(median(values))
+    low_bid = _round_bid_amount(_percentile(values, 0.25))
+    high_bid = _round_bid_amount(_percentile(values, 0.75))
+    if low_bid == high_bid and len(values) > 1:
+        low_bid = _round_bid_amount(min(values))
+        high_bid = _round_bid_amount(max(values))
+    recommended_bid = _round_bid_amount(average_award)
+    confidence = _bid_value_confidence(len(values), basis)
+    contract_type = _contract_type_label(type_family)
+    evidence = [
+        (
+            f"Bid guidance uses {len(values)} historical {contract_type} award(s) from {basis}; "
+            f"average ${average_award:,.0f}, median ${median_award:,.0f}."
+        ),
+        "Recommended bid is the historical average rounded for a fictional-company demo.",
+    ]
+    if low_bid and high_bid and low_bid != high_bid:
+        evidence.append(f"Suggested range is ${low_bid:,.0f} to ${high_bid:,.0f}.")
+    if profile.max_contract_value and recommended_bid > profile.max_contract_value:
+        evidence.append(
+            f"Recommended amount is above the profile's ${profile.max_contract_value:,.0f} comfort range; review capacity before bidding."
+        )
+
+    return BidRecommendation(
+        source="historical_contract_type_average",
+        recommended_bid=recommended_bid,
+        low_bid=low_bid,
+        high_bid=high_bid,
+        confidence=confidence,
+        contract_type=contract_type,
+        historical_award_count=len(values),
+        average_award=round(average_award, 2),
+        median_award=round(median_award, 2),
+        basis=basis,
+        evidence=evidence,
+    )
 
 
 def _market_context_snapshot(

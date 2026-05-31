@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import socket
 import time
 from dataclasses import replace
 from typing import Any
@@ -19,6 +18,11 @@ TOP_CANDIDATE_LIMIT = 3
 NIM_PREFLIGHT_TIMEOUT_SECONDS = 0.2
 NIM_PREFLIGHT_CACHE_SECONDS = 30.0
 _NIM_PREFLIGHT_CACHE: dict[str, dict[str, Any]] = {}
+
+
+class SchemaRejectedError(RuntimeError):
+    pass
+
 
 REQUIREMENT_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -223,7 +227,9 @@ def _enrich_top_opportunities(
             stats["model_calls_failed"] += 1
             stats["model_calls_avoided_by_failure"] = top_count - stats["model_calls_attempted"]
             fallback = _fallback_enrich(profile, opportunities)
-            stats["briefs_generated"] += sum(
+            stats["model_calls_successful"] = 0
+            stats["label_changes_after_extraction"] = 0
+            stats["briefs_generated"] = sum(
                 1 for item in fallback if item.opportunity_brief.owner_summary
             )
             return _with_optional_stats(
@@ -243,7 +249,7 @@ def _extract_with_nim(
     prompt = _structured_prompt(profile, opportunity)
     try:
         content = _chat_completion(prompt, with_schema=True)
-    except RuntimeError:
+    except SchemaRejectedError:
         content = _chat_completion(prompt, with_schema=False)
     payload = _extract_json_object(content)
     return _validate_extraction(payload, source="local_nim"), _validate_brief(payload, source="local_nim")
@@ -290,7 +296,7 @@ def _chat_completion(prompt: str, with_schema: bool) -> str:
             response_body = response.read().decode("utf-8")
     except error.HTTPError as exc:
         if with_schema and exc.code in {400, 404, 422}:
-            raise RuntimeError("NIM endpoint rejected response_format") from exc
+            raise SchemaRejectedError("NIM endpoint rejected response_format") from exc
         raise RuntimeError("local NIM request failed") from exc
     except (error.URLError, TimeoutError) as exc:
         raise RuntimeError("local NIM unavailable") from exc
@@ -317,6 +323,8 @@ def _with_extraction(
     brief: OpportunityBrief,
 ) -> EvaluatedOpportunity:
     reconciled = _reconcile_extraction(profile, opportunity, extraction, brief)
+    if extraction.source == "local_nim":
+        reconciled = _with_owner_brief_rationale(reconciled, brief, extraction)
     return replace(
         reconciled,
         pre_extraction_label=opportunity.label,
@@ -324,6 +332,66 @@ def _with_extraction(
         opportunity_brief=brief,
         nemotron_summary=_summary_from_requirements(profile, reconciled, extraction),
     )
+
+
+def _with_owner_brief_rationale(
+    opportunity: EvaluatedOpportunity,
+    brief: OpportunityBrief,
+    extraction: RequirementExtraction,
+) -> EvaluatedOpportunity:
+    final_rationale = _brief_final_rationale(opportunity, brief, extraction)
+    if not final_rationale:
+        return opportunity
+
+    trace = opportunity.bid_fitness_trace
+    positive_signals = list(trace.positive_signals)
+    fit_reason = _short_text(brief.fit_reason, limit=180)
+    if fit_reason and fit_reason not in positive_signals:
+        positive_signals.insert(0, fit_reason)
+
+    updated_trace = replace(
+        trace,
+        positive_signals=_unique_strings(positive_signals),
+        final_rationale=final_rationale,
+    )
+    return replace(opportunity, bid_fitness_trace=updated_trace)
+
+
+def _brief_final_rationale(
+    opportunity: EvaluatedOpportunity,
+    brief: OpportunityBrief,
+    extraction: RequirementExtraction,
+) -> str:
+    label = opportunity.label
+    summary = _sentence_fragment(_short_text(brief.owner_summary, limit=180))
+    fit_reason = _sentence_fragment(_short_text(brief.fit_reason, limit=180))
+    next_step = _sentence_fragment(_short_text(
+        (brief.next_steps[0] if brief.next_steps else extraction.next_action),
+        limit=140,
+    ))
+    concern = _sentence_fragment(_short_text(
+        (brief.blockers or brief.missing_items or extraction.risk_flags or extraction.capacity_flags or [""])[0],
+        limit=120,
+    ))
+
+    if label == "Skip":
+        reason = concern or summary or fit_reason
+        return f"Skip: {reason}." if reason else ""
+    if label == "Review" and concern:
+        body = summary or fit_reason or "the local brief found a concern to check"
+        return f"Review: {concern}. {body}."
+    body = fit_reason or summary
+    if body and next_step:
+        return f"{label}: {body}. Next step: {next_step}."
+    if body:
+        return f"{label}: {body}."
+    if next_step:
+        return f"{label}: {next_step}."
+    return ""
+
+
+def _sentence_fragment(value: str) -> str:
+    return value.strip().rstrip(".;:")
 
 
 def _with_fallback_requirements(
@@ -929,27 +997,35 @@ def _nim_preflight() -> dict[str, Any]:
         return result
     port = parsed.port or (443 if parsed.scheme == "https" else 80)
     timeout = float(os.environ.get("NIM_PREFLIGHT_TIMEOUT_SECONDS", str(NIM_PREFLIGHT_TIMEOUT_SECONDS)))
+    models_url = f"{base_url}/models"
+    req = request.Request(models_url, method="GET")
     try:
-        with socket.create_connection((host, port), timeout=timeout):
-            pass
-    except OSError as exc:
-        result = {
-            "available": False,
-            "reason": "connection_failed",
-            "base_url": base_url,
-            "host": host,
-            "port": port,
-            "detail": str(exc)[:120],
-        }
-        _cache_nim_preflight(cache_key, result)
-        return result
+        with request.urlopen(req, timeout=timeout) as response:
+            if 200 <= response.status < 300:
+                result = {
+                    "available": True,
+                    "reason": "http_ready",
+                    "base_url": base_url,
+                    "models_url": models_url,
+                    "host": host,
+                    "port": port,
+                }
+                _cache_nim_preflight(cache_key, result)
+                return result
+            detail = f"HTTP {response.status}"
+    except error.HTTPError as exc:
+        detail = f"HTTP {exc.code}"
+    except (error.URLError, TimeoutError, OSError) as exc:
+        detail = str(exc)[:120]
 
     result = {
-        "available": True,
-        "reason": "tcp_ready",
+        "available": False,
+        "reason": "http_preflight_failed",
         "base_url": base_url,
+        "models_url": models_url,
         "host": host,
         "port": port,
+        "detail": detail,
     }
     _cache_nim_preflight(cache_key, result)
     return result

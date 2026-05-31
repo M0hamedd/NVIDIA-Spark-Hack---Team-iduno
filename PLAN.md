@@ -1,5 +1,13 @@
 # Live Contract Radar
 
+## Progress Update - May 31, 2026
+
+- Added historical bid amount guidance to the ranker so each evaluated opportunity can include a recommended bid, range, confidence, basis, and evidence from comparable Toronto awards.
+- Exposed bid recommendations through the opportunity payload and UI, including card labels, selected-opportunity facts, decision brief language, and the judge-facing processing pipeline.
+- Tightened local Nemotron handling: OpenAI-compatible `/models` HTTP preflight, schema-rejection retry without response schema, clearer managed-startup wording, and fallback metrics when a model call fails mid-run.
+- Improved owner-ready rationale by carrying Nemotron brief fit reasons and next steps into the bid fitness trace while keeping deterministic fallback behavior available.
+- Expanded tests for bid recommendation math, NIM schema fallback behavior, unavailable-NIM fast fail, partial model failure metrics, and service payload bid guidance.
+
 ## Core Message
 
 This is not a chatbot. It is a local bid intelligence engine for businesses that want government contracts.

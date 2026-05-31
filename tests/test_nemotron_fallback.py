@@ -5,6 +5,7 @@ import time
 import unittest
 from datetime import date
 from unittest.mock import patch
+from urllib import error
 
 from contract_radar.models import (
     BusinessProfile,
@@ -13,7 +14,13 @@ from contract_radar.models import (
     RequirementExtraction,
     Solicitation,
 )
-from contract_radar.nemotron import enrich_top_opportunities, nemotron_status, reset_nim_preflight_cache
+from contract_radar.nemotron import (
+    SchemaRejectedError,
+    enrich_top_opportunities,
+    enrich_top_opportunities_with_stats,
+    nemotron_status,
+    reset_nim_preflight_cache,
+)
 
 
 class NemotronFallbackTests(unittest.TestCase):
@@ -103,6 +110,9 @@ class NemotronFallbackTests(unittest.TestCase):
         self.assertIn("traffic staging", enriched[0].requirements.services)
         self.assertEqual(enriched[0].requirements.next_action, "Prepare owner review package.")
         self.assertIn("Owner-ready road repair brief", enriched[0].opportunity_brief.owner_summary)
+        self.assertIn("The profile has matching road repair capacity", enriched[0].bid_fitness_trace.final_rationale)
+        self.assertIn("Prepare owner review package", enriched[0].bid_fitness_trace.final_rationale)
+        self.assertNotIn("Capability fit:", enriched[0].bid_fitness_trace.final_rationale)
 
     def test_local_nim_blocker_downgrades_pursue_to_review(self) -> None:
         profile = BusinessProfile()
@@ -140,6 +150,56 @@ class NemotronFallbackTests(unittest.TestCase):
         self.assertIn("confirmed bonding capacity", enriched[0].missing_requirements)
         self.assertIn("Nemotron extraction reconciliation rule", enriched[0].bid_fitness_trace.rules_triggered)
 
+    def test_schema_rejection_retries_without_schema_once(self) -> None:
+        profile = BusinessProfile()
+        response = _nim_response()
+
+        with patch("contract_radar.nemotron._nim_preflight", return_value={"available": True, "reason": "test"}):
+            with patch(
+                "contract_radar.nemotron._chat_completion",
+                side_effect=[SchemaRejectedError("schema unsupported"), __import__("json").dumps(response)],
+            ) as chat:
+                enriched, mode = enrich_top_opportunities(profile, [_opportunity()])
+
+        self.assertEqual(mode, "local_nim")
+        self.assertEqual(enriched[0].requirements.source, "local_nim")
+        self.assertEqual([call.kwargs["with_schema"] for call in chat.mock_calls], [True, False])
+
+    def test_request_failure_does_not_retry_as_schema_fallback(self) -> None:
+        profile = BusinessProfile()
+
+        with patch("contract_radar.nemotron._nim_preflight", return_value={"available": True, "reason": "test"}):
+            with patch(
+                "contract_radar.nemotron._chat_completion",
+                side_effect=RuntimeError("local NIM unavailable"),
+            ) as chat:
+                enriched, mode = enrich_top_opportunities(profile, [_opportunity()])
+
+        self.assertEqual(mode, "deterministic_fallback")
+        self.assertEqual(chat.call_count, 1)
+        self.assertEqual(enriched[0].requirements.source, "deterministic_fallback")
+
+    def test_partial_model_failure_reports_returned_fallback_briefs_only(self) -> None:
+        profile = BusinessProfile()
+        response = _nim_response()
+
+        with patch("contract_radar.nemotron._nim_preflight", return_value={"available": True, "reason": "test"}):
+            with patch(
+                "contract_radar.nemotron._chat_completion",
+                side_effect=[__import__("json").dumps(response), RuntimeError("local NIM unavailable")],
+            ):
+                enriched, mode, stats = enrich_top_opportunities_with_stats(
+                    profile,
+                    [_opportunity(), _opportunity()],
+                )
+
+        self.assertEqual(mode, "deterministic_fallback")
+        self.assertEqual(stats["model_calls_attempted"], 2)
+        self.assertEqual(stats["model_calls_successful"], 0)
+        self.assertEqual(stats["model_calls_failed"], 1)
+        self.assertEqual(stats["briefs_generated"], 2)
+        self.assertTrue(all(item.requirements.source == "deterministic_fallback" for item in enriched))
+
     def test_to_dict_exposes_requirements_for_frontend(self) -> None:
         opportunity = _opportunity()
         opportunity.requirements = RequirementExtraction(
@@ -167,6 +227,20 @@ class NemotronFallbackTests(unittest.TestCase):
         self.assertFalse(status["available"])
         self.assertTrue(status["structured_extraction"])
         self.assertIn("model", status)
+
+    def test_preflight_requires_openai_compatible_http_endpoint(self) -> None:
+        os.environ["NIM_BASE_URL"] = "http://127.0.0.1:30000/v1"
+        reset_nim_preflight_cache()
+
+        with patch(
+            "contract_radar.nemotron.request.urlopen",
+            side_effect=error.URLError("HTTP 404 from /models"),
+        ):
+            status = nemotron_status()
+
+        self.assertFalse(status["available"])
+        self.assertEqual(status["preflight"]["reason"], "http_preflight_failed")
+        self.assertIn("/models", status["preflight"]["models_url"])
 
     def test_unavailable_nim_fast_fails_before_chat_completion(self) -> None:
         profile = BusinessProfile()
@@ -220,6 +294,36 @@ def _opportunity() -> EvaluatedOpportunity:
             accessibility="within civil contractor range",
         ),
     )
+
+
+def _nim_response() -> dict:
+    return {
+        "services": ["road repairs", "traffic staging"],
+        "certifications": ["bonding capacity"],
+        "documents": ["insurance", "WSIB"],
+        "facility_signals": ["municipal road corridor"],
+        "risk_flags": [],
+        "capacity_flags": [],
+        "procurement_type": "RFT",
+        "deadline_risk": "Manageable",
+        "next_action": "Prepare owner review package.",
+        "summary": "Road and sidewalk repair work for municipal corridors.",
+        "owner_brief": {
+            "owner_summary": "Owner-ready road repair brief.",
+            "fit_reason": "The profile has matching road repair capacity.",
+            "blockers": [],
+            "required_documents": ["insurance", "WSIB"],
+            "missing_items": [],
+            "clarification_questions": ["Confirm traffic staging requirements."],
+            "next_steps": ["Prepare owner review package."],
+            "buyer_email_draft": (
+                "Subject: Clarification for RFQ-123\n\n"
+                "Hello City Buyer,\n\n"
+                "Can you confirm traffic staging requirements?\n\n"
+                "Thank you,\nHarbourfront Civil Works Ltd."
+            ),
+        },
+    }
 
 
 if __name__ == "__main__":

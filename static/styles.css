@@ -629,7 +629,6 @@ button:disabled {
 .audit-ledger-section,
 .audit-proof-section,
 .secondary-drawer,
-.active-profile-evidence,
 .metric-tile {
   min-width: 0;
   border: 1px solid var(--line);
@@ -948,7 +947,7 @@ button:disabled {
 
 .brief-facts {
   display: grid;
-  grid-template-columns: minmax(82px, 0.42fr) minmax(124px, 0.58fr) minmax(0, 1.25fr);
+  grid-template-columns: minmax(82px, 0.42fr) minmax(124px, 0.58fr) minmax(124px, 0.58fr) minmax(0, 1.25fr);
   gap: 7px;
   margin: 0;
 }
@@ -1314,45 +1313,6 @@ button:disabled {
   white-space: pre-wrap;
 }
 
-.active-profile-evidence {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 260px;
-  gap: 10px;
-  margin-bottom: 8px;
-  border-left: 4px solid var(--green);
-  padding: 10px 11px;
-  background: var(--green-soft);
-  box-shadow: var(--shadow-soft);
-}
-
-.active-profile-evidence h3,
-.active-profile-evidence p {
-  margin: 0;
-}
-
-.active-profile-evidence h3 {
-  font-size: 1rem;
-}
-
-.active-profile-evidence p {
-  margin-top: 3px;
-  color: var(--muted);
-  font-size: 0.82rem;
-}
-
-.active-profile-stats {
-  display: grid;
-  gap: 4px;
-  color: var(--muted);
-  font-family: var(--mono);
-  font-size: 0.76rem;
-  font-weight: 760;
-}
-
-.active-profile-stats strong {
-  color: var(--green-dark);
-}
-
 .audit-counters {
   display: grid;
   grid-template-columns: repeat(8, minmax(0, 1fr));
@@ -1383,7 +1343,7 @@ button:disabled {
 }
 
 #evidenceView.active {
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
 }
 
 .audit-ledger-section,
@@ -1697,8 +1657,7 @@ button:disabled {
 
   .app-topbar,
   .workbench-grid,
-  .audit-grid,
-  .active-profile-evidence {
+  .audit-grid {
     grid-template-columns: 1fr;
   }
 

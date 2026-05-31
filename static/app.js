@@ -290,7 +290,6 @@ function renderProfile(profile) {
   renderTags($("profileSkills"), active.skills || []);
   renderTags($("profileDocs"), active.ready_documents || []);
   renderProfileEvidence(active);
-  renderActiveProfileEvidence(active);
 }
 
 function resetWorkspace(message) {
@@ -438,6 +437,7 @@ function opportunityCard(item) {
   const decisionClass = `decision-${internalLabel.toLowerCase()}`;
   const reason = queueReason(item);
   const score = item.rank_score === undefined || item.rank_score === null ? "" : `Fit ${item.rank_score}`;
+  const bidLabel = bidRecommendationLabel(item);
 
   return `
     <article class="opportunity-card ${decisionClass}${selected}" data-id="${escapeHtml(id)}" tabindex="0" role="button" aria-pressed="${selected ? "true" : "false"}">
@@ -453,6 +453,7 @@ function opportunityCard(item) {
           <span>Listing ${escapeHtml(id || "pending")}</span>
           <span>Due ${escapeHtml(deadline)}</span>
           <span>${escapeHtml(dayText)}</span>
+          ${bidLabel ? `<span>${escapeHtml(bidLabel)}</span>` : ""}
         </div>
         <p class="docket-rationale">${escapeHtml(reason)}</p>
       </div>
@@ -488,7 +489,7 @@ function renderSelectedOpportunityDetail(item) {
     240
   );
   const whyMatched = compactSentenceList(
-    whyMatchedItems(item, trace, requirements),
+    whyMatchedItems(item, trace, requirements, brief),
     "Matched against this business lane using category, scope terms, and profile evidence.",
     2,
     240
@@ -500,6 +501,10 @@ function renderSelectedOpportunityDetail(item) {
     2,
     240
   );
+  const bidRecommendation = getBidRecommendation(item);
+  const bidAmount = bidRecommendation && bidRecommendation.recommended_bid
+    ? formatMoney(bidRecommendation.recommended_bid)
+    : "Not enough history";
   const nextStep = ownerTaskText(item);
   const fit = fitConfidenceText(item, trace);
 
@@ -520,6 +525,7 @@ function renderSelectedOpportunityDetail(item) {
       <dl class="brief-facts">
         ${renderSelectedFact("Listing", getOpportunityId(item) || "Not listed")}
         ${renderSelectedFact("Deadline", deadline)}
+        ${renderSelectedFact("Bid Amount", bidAmount)}
         ${renderSelectedFact("Contact", buyer || "Toronto contact not listed", "wide")}
       </dl>
 
@@ -528,6 +534,7 @@ function renderSelectedOpportunityDetail(item) {
       <div class="brief-grid">
         ${renderDecisionBriefBlock("Scope", whatThisIs)}
         ${renderDecisionBriefBlock("Why It Matched", whyMatched)}
+        ${renderDecisionBriefBlock("Revenue Guidance", bidRecommendationLanguage(item))}
         ${renderDecisionBriefBlock("Risk To Check", blockerText, blockers.length ? "warning" : "")}
       </div>
     </article>
@@ -659,6 +666,11 @@ function renderPipeline(metrics) {
     {
       name: "Past Awards",
       output: awardLanguage(selected)
+    },
+    {
+      name: "Bid Amount",
+      output: bidRecommendationLanguage(selected),
+      source: selected && getBidRecommendation(selected) ? "historical contract-type average" : ""
     },
     {
       name: "Market Signal",
@@ -1420,6 +1432,38 @@ function getMarketFit(item) {
   return item.market_fit;
 }
 
+function getBidRecommendation(item) {
+  if (!item || !item.bid_recommendation || typeof item.bid_recommendation !== "object") {
+    return null;
+  }
+  const recommendation = item.bid_recommendation;
+  return recommendation.recommended_bid ? recommendation : null;
+}
+
+function bidRecommendationLabel(item) {
+  const recommendation = getBidRecommendation(item);
+  if (!recommendation) {
+    return "";
+  }
+  return `Bid ${formatMoney(recommendation.recommended_bid)}`;
+}
+
+function bidRecommendationLanguage(item) {
+  const recommendation = getBidRecommendation(item);
+  if (!item) {
+    return "Bid guidance appears after a city listing is checked.";
+  }
+  if (!recommendation) {
+    return "Not enough historical award value evidence to suggest a bid amount.";
+  }
+  const amount = formatMoney(recommendation.recommended_bid);
+  const range = recommendation.low_bid && recommendation.high_bid && recommendation.low_bid !== recommendation.high_bid
+    ? ` Suggested range ${formatMoney(recommendation.low_bid)} to ${formatMoney(recommendation.high_bid)}.`
+    : "";
+  const evidence = firstItems(recommendation.evidence || [], 1)[0] || "";
+  return `Bid around ${amount}. ${range} ${evidence}`.replace(/\s+/g, " ").trim();
+}
+
 function marketFitLabel(market) {
   if (!market) {
     return "Market not scored";
@@ -1504,6 +1548,15 @@ function renderOpportunityBrief(brief) {
       ${nextSteps.length ? `<div class="brief-row"><span>Next</span><em>${escapeHtml(nextSteps[0])}</em></div>` : ""}
     </div>
   `;
+}
+
+function briefReasonItems(brief) {
+  if (!brief || typeof brief !== "object") {
+    return [];
+  }
+  return uniqueTextItems([
+    brief.fit_reason
+  ]);
 }
 
 function formatHistory(history, label) {
@@ -1597,7 +1650,8 @@ function cleanDisplayText(value) {
     .replace(/\.;/g, ".")
     .replace(/;\./g, ".")
     .replace(/,;/g, ";")
-    .replace(/([,;:])(?=\S)/g, "$1 ")
+    .replace(/([;:])(?=\S)/g, "$1 ")
+    .replace(/,([^\s\d])/g, ", $1")
     .replace(/([.;:!?])\s+\1+/g, "$1")
     .trim();
 }
@@ -1746,27 +1800,6 @@ function renderProfileEvidence(profile) {
   renderEvidenceTags(divisions, profile.top_divisions || []);
   renderEvidenceTags(goodFit, profile.good_fit_examples || []);
   renderEvidenceTags(badFit, profile.bad_fit_examples || []);
-}
-
-function renderActiveProfileEvidence(profile) {
-  const container = $("activeProfileEvidence");
-  if (!container) {
-    return;
-  }
-  const profileName = profileLabel(profile);
-  const divisions = firstItems(profile.top_divisions || [], 4);
-  container.innerHTML = `
-    <div>
-      <p class="eyebrow">Current Business Type</p>
-      <h3>${escapeHtml(profileName)}</h3>
-      <p>Based on 2026 Toronto city listings: ${escapeHtml(ownerText(profile.lane_basis || "evidence loads from city listings"))}.</p>
-    </div>
-    <div class="active-profile-stats">
-      <span><strong>${profile.ytd_solicitation_hits === undefined ? "0" : number(profile.ytd_solicitation_hits)}</strong> 2026 hits</span>
-      <span><strong>${profile.exclusive_best_fit_hits === undefined ? "0" : number(profile.exclusive_best_fit_hits)}</strong> exclusive best-fit</span>
-      <span>${escapeHtml(divisions.length ? divisions.join(", ") : "Top divisions pending")}</span>
-    </div>
-  `;
 }
 
 function findSelectedOpportunity() {
@@ -1963,7 +1996,7 @@ function queueReason(item) {
   const label = decisionLabel(item.label);
   const source = label === "Skip"
     ? blockerItems(item, trace, brief)
-    : whyMatchedItems(item, trace, requirements);
+    : whyMatchedItems(item, trace, requirements, brief);
   return shortText(ownerText(source[0] || finalReason(item, requirements)), 128);
 }
 
@@ -2021,11 +2054,11 @@ function fitConfidenceText(item, trace = null) {
   return "Needs a closer look";
 }
 
-function whyMatchedItems(item, trace, requirements) {
+function whyMatchedItems(item, trace, requirements, brief = null) {
   return firstItems(uniqueTextItems([
-    ...trace.positiveSignals,
+    ...briefReasonItems(brief),
     ...requirementSignalItems(requirements),
-    ...textItems(item.reasons),
+    ...trace.positiveSignals,
     ...firstItems(item.matched_terms, 4).map((term) => `Matched term: ${term}`)
   ]), 4);
 }

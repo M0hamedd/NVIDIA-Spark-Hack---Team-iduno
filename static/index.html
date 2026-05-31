@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>SoBid</title>
     <link rel="stylesheet" href="/static/vendor-modern-normalize.css">
-    <link rel="stylesheet" href="/static/styles.css?v=decision-proof-1">
+    <link rel="stylesheet" href="/static/styles.css?v=stats-proof-1">
   </head>
   <body>
     <div class="app-shell">
@@ -227,7 +227,7 @@
               <strong id="metricAwards">0</strong>
             </div>
             <div class="metric-tile">
-              <span>Passed On</span>
+              <span>Filtered</span>
               <strong id="metricRejected">0</strong>
             </div>
             <div class="metric-tile">
@@ -255,21 +255,21 @@
           <div class="audit-grid">
             <section class="audit-ledger-section" aria-label="Pipeline details">
               <div class="panel-heading-row">
-                <h3>Why This Decision</h3>
+                <h3>Pipeline Stats</h3>
                 <span id="engineLabel" class="count-pill">Python</span>
               </div>
               <div id="pipelineDetails" class="pipeline-list empty-list">
-                <p>Details appear after you find matches.</p>
+                <p>Stats appear after you find matches.</p>
               </div>
             </section>
 
-            <section class="audit-proof-section" aria-label="Rejected examples">
+            <section class="audit-proof-section" aria-label="Pricing stats">
               <div class="panel-heading-row">
-                <h3>Why We Passed</h3>
+                <h3>Pricing Stats</h3>
                 <span id="skipCount" class="count-pill">0</span>
               </div>
               <div id="skippedExamples" class="docket-list empty-list">
-                <p>Listings we passed on will show why they are probably not worth your time.</p>
+                <p>Pricing stats appear after the value model runs.</p>
               </div>
             </section>
 
@@ -279,12 +279,12 @@
                 <span id="scorecardStatus" class="count-pill">Waiting</span>
               </div>
               <div id="scorecardDetails" class="scorecard-grid empty-list">
-                <p>Find matches to see the validation details behind the recommendations.</p>
+                <p>Find matches to see validation stats.</p>
               </div>
             </section>
           </div>
 
-          <details class="secondary-drawer stream-drawer">
+          <details class="secondary-drawer stream-drawer" hidden>
             <summary>
               All Checked Listings
               <span id="evaluatedCount" class="count-pill">0</span>
@@ -298,6 +298,6 @@
     </div>
 
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
-    <script src="/static/app.js?v=decision-proof-1"></script>
+    <script src="/static/app.js?v=stats-proof-1"></script>
   </body>
 </html>

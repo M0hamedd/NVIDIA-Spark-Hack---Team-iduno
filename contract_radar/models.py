@@ -427,6 +427,36 @@ class BidRecommendation:
 
 
 @dataclass
+class PricingBreakdown:
+    source: str = "not_priced"
+    market_reference: float = 0.0
+    direct_cost: float = 0.0
+    contingency: float = 0.0
+    overhead: float = 0.0
+    margin: float = 0.0
+    estimated_cost: float = 0.0
+    cost_based_bid: float = 0.0
+    market_adjusted_bid: float = 0.0
+    recommended_bid: float = 0.0
+    win_probability: float = 0.0
+    expected_profit: float = 0.0
+    bid_prep_cost: float = 0.0
+    complexity_score: float = 0.0
+    risk_multiplier: float = 1.0
+    overhead_rate: float = 0.0
+    margin_rate: float = 0.0
+    contingency_rate: float = 0.0
+    market_weight: float = 0.0
+    cost_weight: float = 0.0
+    candidate_bids: list[dict[str, Any]] = field(default_factory=list)
+    drivers: list[str] = field(default_factory=list)
+    evidence: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
 class RAGEvidence:
     source: str = "not_retrieved"
     mode: str = "none"
@@ -532,6 +562,7 @@ class EvaluatedOpportunity:
     opportunity_brief: OpportunityBrief = field(default_factory=OpportunityBrief)
     market_fit: MarketFitSignal = field(default_factory=MarketFitSignal)
     bid_recommendation: BidRecommendation = field(default_factory=BidRecommendation)
+    pricing_breakdown: PricingBreakdown = field(default_factory=PricingBreakdown)
     predicted_bid: float = 0.0
     bid_range_low: float = 0.0
     bid_range_high: float = 0.0
@@ -557,6 +588,7 @@ class EvaluatedOpportunity:
         data["nemotron_brief"] = self.opportunity_brief.to_dict()
         data["market_fit"] = self.market_fit.to_dict()
         data["bid_recommendation"] = self.bid_recommendation.to_dict()
+        data["pricing_breakdown"] = self.pricing_breakdown.to_dict()
         data["rag_evidence"] = self.rag_evidence.to_dict()
         data["simulation_summary"] = self.simulation_summary.to_dict()
         data["portfolio_decision"] = self.portfolio_decision.to_dict()

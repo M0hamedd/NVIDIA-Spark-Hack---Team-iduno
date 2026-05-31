@@ -45,7 +45,10 @@ const state = {
   selectedProfileId: DEFAULT_PROFILE_ID,
   selectedDemoMonth: DEFAULT_DEMO_MONTH,
   scanRequestId: 0,
-  autoScanDone: false
+  autoScanDone: false,
+  progressiveOpportunities: [],
+  backgroundScans: {},
+  backgroundScanRequests: {}
 };
 
 const $ = (id) => document.getElementById(id);
@@ -73,17 +76,7 @@ function bindEvents() {
   $("profileOptions").addEventListener("change", (event) => {
     const input = event.target;
     if (input && input.matches('input[name="supportedProfile"]')) {
-      state.selectedProfileId = input.value;
-      state.selectedOpportunityId = "";
-      state.scan = null;
-      const profile = currentProfile();
-      renderProfile(profile);
-      resetWorkspace(`${profileLabel(profile)} selected. Re-ranking Toronto contracts for this lane.`);
-      runScan(false, {
-        busyMessage: `Re-ranking ${profileLabel(profile)}`,
-        doneMessage: `${profileLabel(profile)} matches ready`,
-        toast: false
-      });
+      switchProfile(input.value);
     }
   });
   document.querySelectorAll('input[name="priorityMode"]').forEach((input) => {
@@ -154,14 +147,21 @@ async function runScan(refresh = false, options = {}) {
     return;
   }
   const requestId = ++state.scanRequestId;
+  state.progressiveOpportunities = [];
   setBusy(true, options.busyMessage || `Finding ${month.label} contract matches`);
+  const payload = {
+    profile_id: profile.profile_id,
+    business_profile: profile,
+    priority_mode: getPriorityMode(),
+    as_of: month.value,
+    refresh
+  };
   try {
-    const result = await apiPost("/api/scan", {
-      profile_id: profile.profile_id,
-      business_profile: profile,
-      priority_mode: getPriorityMode(),
-      as_of: month.value,
-      refresh
+    const result = await apiPostStream("/api/scan-stream", payload, (event) => {
+      if (requestId !== state.scanRequestId || profile.profile_id !== state.selectedProfileId) {
+        return;
+      }
+      handleScanProgress(event, profile, month);
     });
     if (requestId !== state.scanRequestId || profile.profile_id !== state.selectedProfileId) {
       return;
@@ -169,6 +169,7 @@ async function runScan(refresh = false, options = {}) {
     ingestResult(result, options.doneMessage || `${month.label} matches ready`, {
       toast: options.toast !== false
     });
+    warmOtherProfileScans(result);
   } catch (error) {
     showToast(error.message);
   } finally {
@@ -176,6 +177,57 @@ async function runScan(refresh = false, options = {}) {
       setBusy(false);
     }
   }
+}
+
+function switchProfile(profileId) {
+  state.selectedProfileId = profileId;
+  state.selectedOpportunityId = "";
+  state.scan = null;
+  state.progressiveOpportunities = [];
+  const profile = currentProfile();
+  const month = selectedDemoMonth();
+  const cached = cachedScanFor(profile.profile_id, getPriorityMode(), month.value);
+  renderProfile(profile);
+
+  if (cached) {
+    ingestResult(cached, `${profileLabel(profile)} matches ready`, { toast: false });
+    setBusy(false);
+    warmOtherProfileScans(cached);
+    return;
+  }
+
+  const key = backgroundScanKey(profile.profile_id, getPriorityMode(), month.value);
+  const pending = state.backgroundScanRequests[key];
+  if (pending) {
+    resetWorkspace(`${profileLabel(profile)} is almost ready. Finishing the pre-ranked contracts.`);
+    setBusy(true, `Opening ${profileLabel(profile)} queue`);
+    pending
+      .then((result) => {
+        if (
+          state.selectedProfileId === profile.profile_id
+          && getPriorityMode() === result.priority_mode
+          && selectedDemoMonth().value === result.as_of
+        ) {
+          ingestResult(result, `${profileLabel(profile)} matches ready`, { toast: false });
+          setBusy(false);
+          warmOtherProfileScans(result);
+        }
+      })
+      .catch((error) => {
+        if (state.selectedProfileId === profile.profile_id) {
+          showToast(error.message);
+          setBusy(false);
+        }
+      });
+    return;
+  }
+
+  resetWorkspace(`${profileLabel(profile)} selected. Re-ranking Toronto contracts for this lane.`);
+  runScan(false, {
+    busyMessage: `Re-ranking ${profileLabel(profile)}`,
+    doneMessage: `${profileLabel(profile)} matches ready`,
+    toast: false
+  });
 }
 
 async function runSimulation(options = {}) {
@@ -236,7 +288,9 @@ async function approveDraft() {
 }
 
 function ingestResult(result, message, options = {}) {
+  state.progressiveOpportunities = [];
   state.scan = result;
+  cacheScanResult(result);
   const resultMonth = demoMonthForDate(result.as_of);
   if (resultMonth) {
     state.selectedDemoMonth = resultMonth.value;
@@ -259,6 +313,139 @@ function ingestResult(result, message, options = {}) {
   if (options.toast !== false) {
     showToast(message);
   }
+}
+
+function warmOtherProfileScans(result) {
+  const activeProfileId = result && result.business_profile && result.business_profile.profile_id;
+  const monthValue = (result && result.as_of) || selectedDemoMonth().value;
+  const priorityMode = (result && result.priority_mode) || getPriorityMode();
+  state.supportedProfiles
+    .filter((profile) => profile.profile_id && profile.profile_id !== activeProfileId)
+    .forEach((profile) => {
+      warmProfileScan(profile, priorityMode, monthValue).catch(() => {});
+    });
+}
+
+function warmProfileScan(profile, priorityMode, monthValue) {
+  const key = backgroundScanKey(profile.profile_id, priorityMode, monthValue);
+  if (state.backgroundScans[key] || state.backgroundScanRequests[key]) {
+    return state.backgroundScanRequests[key] || Promise.resolve(state.backgroundScans[key]);
+  }
+
+  const request = apiPostStream("/api/scan-stream", {
+    profile_id: profile.profile_id,
+    business_profile: profile,
+    priority_mode: priorityMode,
+    as_of: monthValue,
+    refresh: false
+  }, () => {})
+    .then((result) => {
+      cacheScanResult(result);
+      delete state.backgroundScanRequests[key];
+      if (state.selectedProfileId === profile.profile_id && !state.scan) {
+        ingestResult(result, `${profileLabel(profile)} matches ready`, { toast: false });
+      }
+      return result;
+    })
+    .catch((error) => {
+      delete state.backgroundScanRequests[key];
+      console.warn("Background scan failed", profile.profile_id, error);
+      throw error;
+    });
+
+  state.backgroundScanRequests[key] = request;
+  return request;
+}
+
+function cacheScanResult(result) {
+  const profileId = result && result.business_profile && result.business_profile.profile_id;
+  const priorityMode = result && result.priority_mode;
+  const monthValue = result && result.as_of;
+  if (!profileId || !priorityMode || !monthValue) {
+    return;
+  }
+  state.backgroundScans[backgroundScanKey(profileId, priorityMode, monthValue)] = result;
+}
+
+function cachedScanFor(profileId, priorityMode, monthValue) {
+  return state.backgroundScans[backgroundScanKey(profileId, priorityMode, monthValue)] || null;
+}
+
+function backgroundScanKey(profileId, priorityMode, monthValue) {
+  return [profileId, priorityMode, monthValue].join("|");
+}
+
+function handleScanProgress(event, profile, month) {
+  if (!event || event.event === "done") {
+    return;
+  }
+  if (event.event === "stage") {
+    renderScanProgressMessage(event.message || `Checking ${month.label} contracts`);
+    return;
+  }
+  if (event.event === "match" && event.opportunity) {
+    upsertProgressOpportunity(event.opportunity, event.preliminary !== false);
+    renderProgressiveOpportunities(profile, month, event.message || "Good match found.");
+    return;
+  }
+  if (event.event === "matches" && Array.isArray(event.opportunities)) {
+    event.opportunities.forEach((item) => upsertProgressOpportunity(item, event.preliminary !== false));
+    renderProgressiveOpportunities(profile, month, event.message || "Promising matches found.");
+  }
+}
+
+function renderScanProgressMessage(message) {
+  $("lastRun").textContent = ownerText(message || "Checking Toronto contracts");
+  if (!state.progressiveOpportunities.length) {
+    $("decisionHeadline").textContent = "Checking city listings";
+    $("topOpportunities").className = "docket-list empty-list";
+    $("topOpportunities").innerHTML = `<p>${escapeHtml(ownerText(message || "Checking Toronto contracts for good matches."))}</p>`;
+  }
+}
+
+function upsertProgressOpportunity(item, preliminary) {
+  const id = getOpportunityId(item);
+  if (!id) {
+    return;
+  }
+  const decorated = { ...item, _preliminary_match: preliminary };
+  const existingIndex = state.progressiveOpportunities.findIndex((candidate) => getOpportunityId(candidate) === id);
+  if (existingIndex >= 0) {
+    state.progressiveOpportunities[existingIndex] = decorated;
+  } else {
+    state.progressiveOpportunities.push(decorated);
+  }
+  state.progressiveOpportunities = state.progressiveOpportunities
+    .filter((candidate) => decisionLabel(candidate.label) !== "Skip")
+    .sort((a, b) => Number(b.rank_score || 0) - Number(a.rank_score || 0))
+    .slice(0, 10);
+}
+
+function renderProgressiveOpportunities(profile, month, message) {
+  const opportunities = state.progressiveOpportunities;
+  if (!opportunities.length) {
+    renderScanProgressMessage(message);
+    return;
+  }
+  const stillSelected = opportunities.some((item) => getOpportunityId(item) === state.selectedOpportunityId);
+  if (!stillSelected) {
+    state.selectedOpportunityId = getOpportunityId(opportunities[0]);
+  }
+  const partial = {
+    business_profile: profile,
+    as_of: month.value,
+    priority_mode: getPriorityMode(),
+    top_opportunities: opportunities,
+    watchlist: [],
+    skipped: [],
+    all_evaluated: opportunities,
+    metrics: {}
+  };
+  state.scan = partial;
+  renderOwner(partial);
+  $("decisionHeadline").textContent = "Promising matches are appearing";
+  $("lastRun").textContent = ownerText(message || "Showing good contracts as they are found.");
+  $("approveButton").disabled = true;
 }
 
 function renderProfileSelector() {
@@ -332,13 +519,13 @@ function resetWorkspace(message) {
   $("engineLabel").textContent = "Python";
   $("skipCount").textContent = "0";
   $("evaluatedCount").textContent = "0";
-  $("pipelineDetails").className = "pipeline-list empty-list";
-  $("pipelineDetails").innerHTML = "<p>Details appear after you find matches.</p>";
-  $("skippedExamples").className = "docket-list empty-list";
-  $("skippedExamples").innerHTML = "<p>Listings we passed on will show why they are probably not worth your time.</p>";
+  $("pipelineDetails").className = "scorecard-grid empty-list";
+  $("pipelineDetails").innerHTML = "<p>Stats appear after you find matches.</p>";
+  $("skippedExamples").className = "scorecard-grid empty-list";
+  $("skippedExamples").innerHTML = "<p>Pricing stats appear after the value model runs.</p>";
   $("scorecardStatus").textContent = "Waiting";
   $("scorecardDetails").className = "scorecard-grid empty-list";
-  $("scorecardDetails").innerHTML = "<p>Find matches to see the validation details behind the recommendations.</p>";
+  $("scorecardDetails").innerHTML = "<p>Find matches to see validation stats.</p>";
   $("evaluatedStream").className = "table-list empty-list";
   $("evaluatedStream").innerHTML = "<p>Find matches to inspect every listing that was checked.</p>";
   $("approveButton").disabled = true;
@@ -396,11 +583,11 @@ function renderEvidence(result) {
   $("metricNvidiaPath").textContent = nvidiaPathLabel(metrics);
   $("metricBacktestInsight").textContent = number(scorecard.realistic_historical_opportunities);
   $("engineLabel").textContent = metrics.engine || "python";
-  $("skipCount").textContent = String(skipped.length);
+  $("skipCount").textContent = String(pricedOpportunities(result).length);
   $("evaluatedCount").textContent = String(evaluated.length);
 
-  renderPipeline(metrics);
-  renderOpportunityList($("skippedExamples"), skipped, "No skipped examples returned.");
+  renderPipeline(metrics, result);
+  renderPricingStats(result);
   renderScorecard(result);
   renderEvaluatedStream(evaluated);
 }
@@ -440,6 +627,9 @@ function opportunityCard(item) {
   const decisionClass = `decision-${internalLabel.toLowerCase()}`;
   const reason = queueReason(item);
   const bidLabel = bidRecommendationLabel(item);
+  const progressBadge = item._preliminary_match
+    ? '<span class="progress-pill">Checking details</span>'
+    : "";
 
   return `
     <article class="opportunity-card ${decisionClass}${selected}" data-id="${escapeHtml(id)}" tabindex="0" role="button" aria-pressed="${selected ? "true" : "false"}">
@@ -448,6 +638,7 @@ function opportunityCard(item) {
           <h4 class="card-title">${escapeHtml(getCompactOpportunityTitle(item, 120))}</h4>
           <div class="card-badges">
             <span class="label-pill ${labelClass(internalLabel)}">${escapeHtml(displayLabel)}</span>
+            ${progressBadge}
           </div>
         </div>
         <div class="card-meta">
@@ -495,10 +686,15 @@ function renderSelectedOpportunityDetail(item) {
     4
   );
   const bidRecommendation = getBidRecommendation(item);
-  const bidAmount = bidRecommendation && bidRecommendation.recommended_bid
-    ? formatMoney(bidRecommendation.recommended_bid)
+  const pricing = getPricingBreakdown(item);
+  const bidAmount = pricing && pricing.recommended_bid
+    ? formatMoney(pricing.recommended_bid)
+    : bidRecommendation && bidRecommendation.recommended_bid
+      ? formatMoney(bidRecommendation.recommended_bid)
     : "Not enough history";
-  const bidRange = bidRangeLabel(bidRecommendation);
+  const bidRange = pricing
+    ? `${Math.round(Number(pricing.win_probability || 0) * 100)}% win / ${formatMoney(pricing.expected_profit || 0)} EV`
+    : bidRangeLabel(bidRecommendation);
   const nextStep = ownerTaskText(item);
   const fit = fitConfidenceText(item, trace);
   const decision = ownerDecisionLabel(item.label);
@@ -532,7 +728,7 @@ function renderSelectedOpportunityDetail(item) {
       <dl class="hero-facts">
         ${renderHeroFact("Due Date", deadline, dayText, "deadline")}
         ${renderHeroFact("Document #", getOpportunityId(item) || "Not listed", solicitation.solicitation_type || "Toronto listing")}
-        ${renderHeroFact("Estimated Bid", bidAmount, bidRange || "Historical award guidance")}
+        ${renderHeroFact("Bid Guidance", bidAmount, bidRange || "Pricing engine guidance")}
         ${renderHeroFact("Fit", fit, buyerText, "fit")}
       </dl>
 
@@ -694,31 +890,113 @@ function renderDecisionGate(item, result) {
   `;
 }
 
-function renderPipeline(metrics) {
-  const candidates = [
-    ...((state.scan && state.scan.top_opportunities) || []),
-    ...((state.scan && state.scan.watchlist) || [])
-  ];
-  const items = candidates.length ? candidates : [findSelectedOpportunity() || firstDecisionOpportunity()].filter(Boolean);
-  const warnings = firstItems(metrics.warnings || [], 1);
-  const summary = metrics.solicitations_loaded
-    ? `Checked ${number(metrics.solicitations_loaded)} current listings and ${number(metrics.awards_loaded)} past awards, then kept the contracts worth owner attention.`
-    : "Decision reasons appear after contracts are checked.";
-
-  $("pipelineDetails").className = "pipeline-list decision-proof-list";
-  if (!items.length) {
-    $("pipelineDetails").innerHTML = `<p>${escapeHtml(summary)}</p>`;
-    return;
-  }
-
-  $("pipelineDetails").innerHTML = `
-    <article class="decision-proof-summary">
-      <strong>Why These Decisions</strong>
-      <p>${escapeHtml(ownerText(summary))}</p>
-      ${warnings.length ? `<span>${escapeHtml(ownerText(warnings[0]))}</span>` : ""}
+function metricStatCard(label, value, detail = "") {
+  return `
+    <article class="scorecard-item">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(String(value || "0"))}</strong>
+      ${detail ? `<p>${escapeHtml(String(detail))}</p>` : ""}
     </article>
-    ${items.map((item) => renderDecisionProofCard(item)).join("")}
   `;
+}
+
+function topStageSummary(timings) {
+  const entries = Object.entries(timings || {})
+    .map(([stage, ms]) => [stage, Number(ms || 0)])
+    .sort((a, b) => b[1] - a[1]);
+  if (!entries.length) {
+    return "No stage timing yet";
+  }
+  const [stage, ms] = entries[0];
+  return `${titleCase(humanizeToken(stage))}: ${number(ms)} ms`;
+}
+
+function dataSourceSummary(metrics) {
+  const sources = metrics.data_sources || {};
+  const values = Object.values(sources).map((value) => String(value || ""));
+  if (!values.length) {
+    return "No sources loaded";
+  }
+  return firstItems(values, 2).join(" / ");
+}
+
+function pricedOpportunities(result) {
+  const items = [
+    ...((result && result.top_opportunities) || []),
+    ...((result && result.watchlist) || []),
+    ...((result && result.all_evaluated) || [])
+  ];
+  const seen = new Set();
+  return items.filter((item) => {
+    const pricing = item && item.pricing_breakdown;
+    const id = getOpportunityId(item);
+    if (!pricing || !pricing.recommended_bid || seen.has(id)) {
+      return false;
+    }
+    seen.add(id);
+    return true;
+  });
+}
+
+function percent(value) {
+  const numeric = Number(value || 0);
+  return `${Math.round(numeric * 100)}%`;
+}
+
+function safeRatio(numerator, denominator) {
+  const bottom = Number(denominator || 0);
+  return bottom ? Number(numerator || 0) / bottom : 0;
+}
+
+function averageNumber(values) {
+  const clean = values.map(Number).filter((value) => Number.isFinite(value));
+  return clean.length ? sumNumber(clean) / clean.length : 0;
+}
+
+function medianNumber(values) {
+  const clean = values.map(Number).filter((value) => Number.isFinite(value)).sort((a, b) => a - b);
+  if (!clean.length) {
+    return 0;
+  }
+  const middle = Math.floor(clean.length / 2);
+  return clean.length % 2 ? clean[middle] : (clean[middle - 1] + clean[middle]) / 2;
+}
+
+function minNumber(values) {
+  const clean = values.map(Number).filter((value) => Number.isFinite(value));
+  return clean.length ? Math.min(...clean) : 0;
+}
+
+function maxNumber(values) {
+  const clean = values.map(Number).filter((value) => Number.isFinite(value));
+  return clean.length ? Math.max(...clean) : 0;
+}
+
+function sumNumber(values) {
+  return values.map(Number).filter((value) => Number.isFinite(value)).reduce((sum, value) => sum + value, 0);
+}
+
+function renderPipeline(metrics, result = {}) {
+  const timings = metrics.stage_timings_ms || {};
+  const localMs = metrics.local_pipeline_ms_excluding_nemotron || metrics.runtime_ms || 0;
+  const modelMode = metrics.market_model_mode || "not scored";
+  const valueMode = metrics.value_model_mode || "historical_average";
+  const stageCount = Object.keys(timings).length;
+  const sourceCount = Object.keys(metrics.data_sources || {}).length;
+  const cards = [
+    ["Rows Scanned", number((metrics.solicitations_loaded || 0) + (metrics.awards_loaded || 0)), `${number(metrics.solicitations_loaded)} listings / ${number(metrics.awards_loaded)} awards`],
+    ["Local Runtime", `${number(localMs)} ms`, `${number(metrics.records_per_second)} records/sec`],
+    ["Pipeline Stages", number(stageCount), topStageSummary(timings)],
+    ["Data Sources", number(sourceCount), dataSourceSummary(metrics)],
+    ["Market Model", modelMode, `${number(metrics.market_model_examples)} examples / P@10 ${number(metrics.market_model_precision_at_10)}`],
+    ["Value Model", valueMode, `MAE ${formatMoney(metrics.value_model_mae || 0)} / MAPE ${percent(metrics.value_model_mape)}`],
+    ["RAG", metrics.rag_mode || "not retrieved", `${number((result.insight_scorecard || {}).similar_awards_grounded)} analog-grounded listings`],
+    ["Shortlist Rate", percent(metrics.shortlist_reduction_ratio), `${number(metrics.top_candidate_count)} top / ${number(metrics.rejected_count)} filtered`],
+    ["Brief Calls", number(metrics.model_calls_attempted), `${number(metrics.model_calls_avoided)} avoided / ${number(metrics.model_calls_successful)} successful`]
+  ];
+
+  $("pipelineDetails").className = "scorecard-grid";
+  $("pipelineDetails").innerHTML = cards.map(([label, value, detail]) => metricStatCard(label, value, detail)).join("");
 }
 
 function renderDecisionProofCard(item) {
@@ -762,61 +1040,66 @@ function renderDecisionProofCard(item) {
   `;
 }
 
+function renderPricingStats(result) {
+  const priced = pricedOpportunities(result);
+  const container = $("skippedExamples");
+  container.className = "scorecard-grid";
+  if (!priced.length) {
+    container.className = "scorecard-grid empty-list";
+    container.innerHTML = "<p>Pricing stats appear after the value model runs.</p>";
+    return;
+  }
+
+  const marketRefs = priced.map((item) => Number(item.pricing_breakdown.market_reference || 0)).filter(Boolean);
+  const recommended = priced.map((item) => Number(item.pricing_breakdown.recommended_bid || 0)).filter(Boolean);
+  const costs = priced.map((item) => Number(item.pricing_breakdown.estimated_cost || 0)).filter(Boolean);
+  const expectedProfits = priced.map((item) => Number(item.pricing_breakdown.expected_profit || 0)).filter(Boolean);
+  const winRates = priced.map((item) => Number(item.pricing_breakdown.win_probability || 0)).filter(Boolean);
+  const contingencies = priced.map((item) => Number(item.pricing_breakdown.contingency_rate || 0)).filter(Boolean);
+  const margins = priced.map((item) => Number(item.pricing_breakdown.margin_rate || 0)).filter(Boolean);
+  const complexity = priced.map((item) => Number(item.pricing_breakdown.complexity_score || 0)).filter(Boolean);
+  const candidateCount = priced.reduce((sum, item) => sum + ((item.pricing_breakdown.candidate_bids || []).length || 0), 0);
+  const cards = [
+    ["Priced Listings", number(priced.length), `${number(candidateCount)} candidate bids tested`],
+    ["Market Ref", formatMoney(medianNumber(marketRefs)), `${formatMoney(minNumber(marketRefs))}-${formatMoney(maxNumber(marketRefs))}`],
+    ["Recommended", formatMoney(medianNumber(recommended)), `${formatMoney(minNumber(recommended))}-${formatMoney(maxNumber(recommended))}`],
+    ["Estimated Cost", formatMoney(medianNumber(costs)), `${formatMoney(minNumber(costs))}-${formatMoney(maxNumber(costs))}`],
+    ["Expected Profit", formatMoney(medianNumber(expectedProfits)), `${formatMoney(sumNumber(expectedProfits))} total`],
+    ["Win Rate", percent(averageNumber(winRates)), `${percent(minNumber(winRates))}-${percent(maxNumber(winRates))}`],
+    ["Contingency", percent(averageNumber(contingencies)), `${percent(minNumber(contingencies))}-${percent(maxNumber(contingencies))}`],
+    ["Target Margin", percent(averageNumber(margins)), `${percent(minNumber(margins))}-${percent(maxNumber(margins))}`],
+    ["Complexity", percent(averageNumber(complexity)), `${percent(minNumber(complexity))}-${percent(maxNumber(complexity))}`]
+  ];
+  container.innerHTML = cards.map(([label, value, detail]) => metricStatCard(label, value, detail)).join("");
+}
+
 function renderScorecard(result) {
   const metrics = result.metrics || {};
   const scorecard = result.insight_scorecard || result.scorecard || {};
   const container = $("scorecardDetails");
-  const scorecardProof = renderScorecardProofArtifacts(result, scorecard);
-  const hasScorecard = Object.keys(scorecard).length > 0 || Boolean(scorecardProof);
+  const hasScorecard = Object.keys(scorecard).length > 0 || Object.keys(metrics).length > 0;
   $("scorecardStatus").textContent = hasScorecard ? "Ready" : "Waiting";
 
   if (!hasScorecard) {
     container.className = "scorecard-grid empty-list";
-    container.innerHTML = "<p>Find matches to see the validation details behind the recommendations.</p>";
+    container.innerHTML = "<p>Find matches to see validation stats.</p>";
     return;
   }
 
   container.className = "scorecard-grid";
-  const activeNvidia = nvidiaPathLabel(metrics);
-  const reduction = Number(metrics.shortlist_reduction_ratio || 0);
-  const reductionText = `${Math.round(reduction * 100)}% shortlist reduction`;
-  container.innerHTML = `
-    <article class="scorecard-item">
-      <span>Local Processing</span>
-      <strong>${escapeHtml(activeNvidia)}</strong>
-      <p>${escapeHtml(runtimePathDetail(metrics))}</p>
-    </article>
-    <article class="scorecard-item">
-      <span>Checks Saved</span>
-      <strong>${number(metrics.model_calls_avoided)} avoided</strong>
-      <p>${number(metrics.model_calls_attempted)} deep checks attempted | ${number(metrics.model_calls_successful)} successful | ${number(metrics.briefs_generated)} brief(s) | ${escapeHtml(reductionText)}</p>
-    </article>
-    <article class="scorecard-item">
-      <span>Brief Layer</span>
-      <strong>${number(metrics.briefs_generated)} generated</strong>
-      <p>Listing briefs summarize the contract package after scoring; fit labels and ranking stay with the local decision engine.</p>
-    </article>
-    <article class="scorecard-item">
-      <span>Past-Winner Signal</span>
-      <strong>${escapeHtml(metrics.market_model_mode || "not scored")}</strong>
-      <p>${number(metrics.market_model_examples)} examples | precision@10 ${number(metrics.market_model_precision_at_10)} | lift ${number(metrics.market_model_top_decile_lift)}x</p>
-    </article>
-    <article class="scorecard-item">
-      <span>Time Saved</span>
-      <strong>${number(scorecard.false_positives_skipped)} skipped</strong>
-      <p>${number(scorecard.similar_awards_grounded)} similar awards grounded | ${number(scorecard.estimated_bid_hours_saved)} bid-review hours saved</p>
-    </article>
-    <article class="scorecard-item wide">
-      <span>Validation Insight</span>
-      <strong>${number(scorecard.realistic_historical_opportunities)} realistic historical opportunities</strong>
-      <p>${escapeHtml(ownerText(scorecard.top_insight || "Historical and false-positive evidence will appear after you find matches."))}</p>
-    </article>
-    ${renderInsightOpportunityCard(scorecard)}
-    ${renderSimilarAwardsCard(scorecard)}
-    ${renderFalsePositiveCategoriesCard(scorecard)}
-    ${renderCapacityReviewCard(scorecard)}
-    ${scorecardProof}
-  `;
+  const priced = pricedOpportunities(result);
+  const cards = [
+    ["Historical Fits", number(scorecard.realistic_historical_opportunities), `${number(scorecard.similar_awards_grounded)} analog-grounded`],
+    ["Award Range", scorecard.similar_award_range ? shortText(scorecard.similar_award_range, 42) : "Not ready", `${number((scorecard.similar_award_examples || []).length)} examples`],
+    ["Model Lift", `${number(metrics.market_model_top_decile_lift)}x`, `precision@10 ${number(metrics.market_model_precision_at_10)}`],
+    ["Training Rows", number(metrics.market_model_examples), `${number(metrics.market_model_positive_examples)} positives`],
+    ["Value Error", percent(metrics.value_model_mape), `MAE ${formatMoney(metrics.value_model_mae || 0)}`],
+    ["Runtime Path", nvidiaPathLabel(metrics), `${metrics.rapids_mode || "python"} / ${metrics.nim_mode || "fallback"}`],
+    ["Brief Cache", number(metrics.listing_extraction_cache_hits), `${number(metrics.briefs_generated)} generated`],
+    ["Local Speed", number(metrics.local_records_per_second_excluding_nemotron || metrics.records_per_second), "records/sec"],
+    ["Pricing Coverage", percent(safeRatio(priced.length, (result.top_opportunities || []).length + (result.watchlist || []).length)), `${number(priced.length)} priced`]
+  ];
+  container.innerHTML = cards.map(([label, value, detail]) => metricStatCard(label, value, detail)).join("");
 }
 
 function renderInsightOpportunityCard(scorecard) {
@@ -1358,6 +1641,82 @@ async function apiPost(path, payload) {
   return parseResponse(response);
 }
 
+async function apiPostStream(path, payload, onEvent) {
+  const response = await fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) {
+    return parseResponse(response);
+  }
+  if (!response.body) {
+    return apiPost("/api/scan", payload);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let finalResult = null;
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) {
+      break;
+    }
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() || "";
+    for (const line of lines) {
+      const event = parseStreamEvent(line);
+      if (!event) {
+        continue;
+      }
+      if (event.event === "error") {
+        throw new Error(event.error || "Streaming scan failed.");
+      }
+      if (event.event === "done") {
+        finalResult = event.result;
+      } else {
+        onEvent(event);
+      }
+    }
+  }
+
+  const tail = decoder.decode();
+  if (tail) {
+    buffer += tail;
+  }
+  const finalEvent = parseStreamEvent(buffer);
+  if (finalEvent) {
+    if (finalEvent.event === "error") {
+      throw new Error(finalEvent.error || "Streaming scan failed.");
+    }
+    if (finalEvent.event === "done") {
+      finalResult = finalEvent.result;
+    } else {
+      onEvent(finalEvent);
+    }
+  }
+
+  if (!finalResult) {
+    throw new Error("Scan finished without a final result.");
+  }
+  return finalResult;
+}
+
+function parseStreamEvent(line) {
+  const trimmed = String(line || "").trim();
+  if (!trimmed) {
+    return null;
+  }
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return null;
+  }
+}
+
 async function parseResponse(response) {
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -1495,7 +1854,19 @@ function getBidRecommendation(item) {
   return recommendation.recommended_bid ? recommendation : null;
 }
 
+function getPricingBreakdown(item) {
+  if (!item || !item.pricing_breakdown || typeof item.pricing_breakdown !== "object") {
+    return null;
+  }
+  const pricing = item.pricing_breakdown;
+  return pricing.recommended_bid ? pricing : null;
+}
+
 function bidRecommendationLabel(item) {
+  const pricing = getPricingBreakdown(item);
+  if (pricing) {
+    return `Bid ${formatMoney(pricing.recommended_bid)}`;
+  }
   const recommendation = getBidRecommendation(item);
   if (!recommendation) {
     return "";
@@ -1504,9 +1875,21 @@ function bidRecommendationLabel(item) {
 }
 
 function bidRecommendationLanguage(item) {
+  const pricing = getPricingBreakdown(item);
   const recommendation = getBidRecommendation(item);
   if (!item) {
     return "Bid guidance appears after a city listing is checked.";
+  }
+  if (pricing) {
+    const drivers = firstItems(pricing.drivers || [], 3);
+    const driverText = drivers.length ? ` Drivers: ${humanList(drivers)}.` : "";
+    return (
+      `Pricing engine recommends ${formatMoney(pricing.recommended_bid)}. ` +
+      `It starts from ${formatMoney(pricing.market_reference)} market value, estimates ` +
+      `${formatMoney(pricing.direct_cost)} direct cost, ${formatMoney(pricing.contingency)} contingency, ` +
+      `${formatMoney(pricing.overhead)} overhead, and targets ${Math.round(Number(pricing.margin_rate || 0) * 100)}% margin. ` +
+      `Expected profit ${formatMoney(pricing.expected_profit)} at ${Math.round(Number(pricing.win_probability || 0) * 100)}% win probability.${driverText}`
+    ).replace(/\s+/g, " ").trim();
   }
   if (!recommendation) {
     return "Not enough historical award value evidence to suggest a bid amount.";

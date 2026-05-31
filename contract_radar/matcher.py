@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
+from typing import Callable
 
 from contract_radar.history import compare_history, meaningful_terms
 from contract_radar.models import (
@@ -57,9 +58,16 @@ def evaluate_opportunities(
     awards: list[AwardRecord],
     today: date,
     priority_mode: str = DEFAULT_PRIORITY_MODE,
+    on_evaluated: Callable[[EvaluatedOpportunity, int, int], None] | None = None,
 ) -> list[EvaluatedOpportunity]:
     priority_mode = normalize_priority_mode(priority_mode)
-    evaluated = [_evaluate_one(profile, solicitation, awards, today) for solicitation in solicitations]
+    evaluated = []
+    total = len(solicitations)
+    for index, solicitation in enumerate(solicitations, start=1):
+        item = _evaluate_one(profile, solicitation, awards, today)
+        evaluated.append(item)
+        if on_evaluated is not None:
+            on_evaluated(item, index, total)
     return sorted(
         evaluated,
         key=lambda item: _sort_key(item, priority_mode, profile),

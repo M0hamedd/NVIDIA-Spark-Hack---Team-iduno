@@ -267,6 +267,7 @@ button:disabled {
 .system-chip,
 .count-pill,
 .label-pill,
+.progress-pill,
 .legend-item {
   display: inline-flex;
   align-items: center;
@@ -282,6 +283,12 @@ button:disabled {
   font-size: 0.72rem;
   font-weight: 800;
   white-space: nowrap;
+}
+
+.progress-pill {
+  border-color: #bfd2d7;
+  background: var(--blue-soft);
+  color: var(--blue);
 }
 
 .app-topbar .status-pill,

@@ -6,11 +6,13 @@ import os
 import time
 from datetime import date
 from threading import Lock
-from typing import Any
+from typing import Any, Callable
 
 from contract_radar import config
 from contract_radar.models import EvaluatedOpportunity, PipelineMetrics
 from contract_radar.profiles import profile_from_payload, supported_profiles
+
+ProgressCallback = Callable[[dict[str, Any]], None]
 
 
 class ContractRadarService:
@@ -77,9 +79,14 @@ class ContractRadarService:
             "endpoints": ["/api/scan", "/api/simulate", "/api/approve"],
         }
 
-    def scan(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    def scan(
+        self,
+        payload: dict[str, Any] | None = None,
+        progress_callback: ProgressCallback | None = None,
+    ) -> dict[str, Any]:
         from contract_radar.data import load_procurement_data
         from contract_radar.backtest import scorecard_from_evaluated
+        from contract_radar.bid_pricing import attach_bid_pricing
         from contract_radar.history import summarize_past_opportunities
         from contract_radar.matcher import evaluate_opportunities, normalize_priority_mode
         from contract_radar.nemotron import enrich_top_opportunities_with_stats
@@ -92,8 +99,20 @@ class ContractRadarService:
         start = time.perf_counter()
         stage_timings_ms: dict[str, int] = {}
 
+        def emit(event: dict[str, Any]) -> None:
+            if progress_callback is not None:
+                progress_callback(event)
+
         def mark_stage(stage_name: str, stage_start: float) -> float:
             stage_timings_ms[stage_name] = int((time.perf_counter() - stage_start) * 1000)
+            emit(
+                {
+                    "event": "stage",
+                    "stage": stage_name,
+                    "message": _scan_stage_message(stage_name),
+                    "elapsed_ms": int((time.perf_counter() - start) * 1000),
+                }
+            )
             return time.perf_counter()
 
         payload = payload or {}
@@ -101,14 +120,23 @@ class ContractRadarService:
         today = _payload_date(payload) or date.today()
         priority_mode = normalize_priority_mode(payload.get("priority_mode"))
         cache_key = _scan_result_cache_key(profile, priority_mode, today, payload)
+        emit(
+            {
+                "event": "stage",
+                "stage": "start",
+                "message": f"Scanning Toronto contracts for {getattr(profile, 'label', 'this business')}.",
+            }
+        )
         if not bool(payload.get("refresh")):
             cached_scan = self._cached_scan_result(cache_key)
             if cached_scan is not None:
+                _emit_progress_matches(emit, cached_scan, stage="scan_result_cache", preliminary=False)
                 with self._lock:
                     self._last_scan = copy.deepcopy(cached_scan)
                 return cached_scan
             precomputed = load_precomputed_scan(profile.profile_id, priority_mode, today)
             if precomputed is not None:
+                _emit_progress_matches(emit, precomputed, stage="precomputed_scan", preliminary=False)
                 with self._lock:
                     if _scan_result_cache_enabled():
                         self._scan_result_cache[cache_key] = copy.deepcopy(precomputed)
@@ -119,12 +147,35 @@ class ContractRadarService:
         stage_start = mark_stage("load_data", stage_start)
         historical_summary = summarize_past_opportunities(profile, data_bundle.awards).to_dict()
         stage_start = mark_stage("summarize_history", stage_start)
+        seen_progress_matches: set[str] = set()
+
+        def on_evaluated(item: EvaluatedOpportunity, index: int, total: int) -> None:
+            if item.label == "Skip" or len(seen_progress_matches) >= 10:
+                return
+            document_number = item.solicitation.document_number
+            if document_number in seen_progress_matches:
+                return
+            seen_progress_matches.add(document_number)
+            emit(
+                {
+                    "event": "match",
+                    "stage": "evaluate_opportunities",
+                    "message": f"Found {item.label} candidate {len(seen_progress_matches)} while checking {index} of {total}.",
+                    "count": len(seen_progress_matches),
+                    "checked": index,
+                    "total": total,
+                    "preliminary": True,
+                    "opportunity": item.to_dict(),
+                }
+            )
+
         evaluated = evaluate_opportunities(
             profile,
             data_bundle.solicitations,
             data_bundle.awards,
             today=today,
             priority_mode=priority_mode,
+            on_evaluated=on_evaluated,
         )
         stage_start = mark_stage("evaluate_opportunities", stage_start)
         evaluated = attach_rag_evidence(
@@ -145,12 +196,20 @@ class ContractRadarService:
             priority_mode=priority_mode,
         )
         stage_start = mark_stage("apply_market_intelligence", stage_start)
+        evaluated = attach_bid_pricing(profile, evaluated)
+        stage_start = mark_stage("bid_pricing_engine", stage_start)
         evaluated = attach_revenue_simulations(profile, evaluated)
         stage_start = mark_stage("revenue_simulation", stage_start)
         optimizer_status = cuopt_status()
         evaluated = optimize_bid_portfolio(profile, evaluated, priority_mode=priority_mode)
         stage_start = mark_stage("portfolio_optimization", stage_start)
         top_inbox, watch_inbox = _contract_inbox_items(evaluated)
+        _emit_progress_matches(
+            emit,
+            {"top_opportunities": [item.to_dict() for item in top_inbox], "watchlist": [item.to_dict() for item in watch_inbox]},
+            stage="portfolio_optimization",
+            preliminary=True,
+        )
         extraction_candidates = [*top_inbox, *watch_inbox]
         enriched, nemotron_mode, nemotron_stats = enrich_top_opportunities_with_stats(profile, extraction_candidates)
         stage_start = mark_stage("listing_brief_enrichment", stage_start)
@@ -292,6 +351,46 @@ def _payload_date(payload: dict[str, Any] | None) -> date | None:
     from contract_radar.models import parse_date
 
     return parse_date((payload or {}).get("as_of"))
+
+
+def _scan_stage_message(stage_name: str) -> str:
+    messages = {
+        "load_data": "Loaded Toronto open-data contracts and award history.",
+        "summarize_history": "Checked past awards for this business lane.",
+        "evaluate_opportunities": "First bid/no-bid pass is ready.",
+        "attach_rag_evidence": "Pulled similar-award evidence for promising listings.",
+        "market_model": "Prepared local award-history model.",
+        "apply_market_intelligence": "Re-ranked matches with market signals.",
+        "bid_pricing_engine": "Estimated bid ranges for the best matches.",
+        "revenue_simulation": "Estimated revenue upside and risk.",
+        "portfolio_optimization": "Checked bid workload and owner capacity.",
+        "listing_brief_enrichment": "Built owner-ready listing briefs.",
+        "scorecard": "Final proof and validation are ready.",
+    }
+    return messages.get(stage_name, stage_name.replace("_", " ").title())
+
+
+def _emit_progress_matches(
+    emit: ProgressCallback,
+    scan_result: dict[str, Any],
+    stage: str,
+    preliminary: bool,
+) -> None:
+    top = scan_result.get("top_opportunities") or []
+    watch = scan_result.get("watchlist") or []
+    opportunities = [item for item in [*top, *watch] if isinstance(item, dict)][:10]
+    if not opportunities:
+        return
+    emit(
+        {
+            "event": "matches",
+            "stage": stage,
+            "message": f"Showing {len(opportunities)} promising contract match(es) found so far.",
+            "count": len(opportunities),
+            "preliminary": preliminary,
+            "opportunities": opportunities,
+        }
+    )
 
 
 def _scan_result_cache_enabled() -> bool:

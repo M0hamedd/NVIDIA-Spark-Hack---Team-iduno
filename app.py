@@ -39,6 +39,9 @@ class ContractRadarHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
+        if parsed.path == "/api/scan-stream":
+            self._send_scan_stream()
+            return
         routes = {
             "/api/scan": service.scan,
             "/api/simulate": service.simulate,
@@ -71,6 +74,44 @@ class ContractRadarHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def _send_scan_stream(self) -> None:
+        try:
+            payload = self._read_json()
+        except Exception as exc:
+            self._send_json({"error": str(exc)}, status=400)
+            return
+
+        self.send_response(200)
+        self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "close")
+        self.end_headers()
+
+        stream_open = True
+
+        def write_event(event: dict) -> None:
+            nonlocal stream_open
+            if not stream_open:
+                raise ConnectionAbortedError("scan stream closed")
+            body = json.dumps(event, default=str).encode("utf-8") + b"\n"
+            try:
+                self.wfile.write(body)
+                self.wfile.flush()
+            except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
+                stream_open = False
+                raise
+
+        try:
+            result = service.scan(payload, progress_callback=write_event)
+            write_event({"event": "done", "result": result})
+        except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
+            return
+        except Exception as exc:
+            try:
+                write_event({"event": "error", "error": str(exc)})
+            except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
+                return
 
     def _send_file(self, path: Path) -> None:
         if not path.exists() or not path.is_file():

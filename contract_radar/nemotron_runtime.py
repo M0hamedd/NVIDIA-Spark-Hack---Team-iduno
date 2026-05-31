@@ -13,10 +13,11 @@ from urllib import error, request
 
 
 DEFAULT_MODEL_REPO = "unsloth/Nemotron-3-Nano-30B-A3B-GGUF"
-DEFAULT_MODEL_FILE = "Nemotron-3-Nano-30B-A3B-UD-Q8_K_XL.gguf"
+DEFAULT_MODEL_FILE = "Nemotron-3-Nano-30B-A3B-UD-Q4_K_XL.gguf"
 DEFAULT_MODEL_NAME = "nemotron"
 DEFAULT_PORT = 30000
 DEFAULT_READY_TIMEOUT_SECONDS = 900
+ROOT_DIR = Path(__file__).resolve().parent.parent
 
 
 class NemotronRuntimeError(RuntimeError):
@@ -67,6 +68,9 @@ def _runtime_config() -> dict[str, Any]:
     home = Path(
         os.getenv("CONTRACT_RADAR_NEMOTRON_HOME", Path.home() / ".contract-radar" / "nemotron")
     ).expanduser()
+    model_dir = Path(
+        os.getenv("CONTRACT_RADAR_NEMOTRON_MODEL_DIR", ROOT_DIR / "data" / "models" / "nemotron3-gguf")
+    ).expanduser()
     model_repo = os.getenv("CONTRACT_RADAR_NEMOTRON_MODEL_REPO", DEFAULT_MODEL_REPO)
     model_file = os.getenv("CONTRACT_RADAR_NEMOTRON_MODEL_FILE", DEFAULT_MODEL_FILE)
     model_name = os.getenv("CONTRACT_RADAR_NEMOTRON_MODEL_NAME", DEFAULT_MODEL_NAME)
@@ -78,8 +82,8 @@ def _runtime_config() -> dict[str, Any]:
         "llama_dir": home / "llama.cpp",
         "build_dir": home / "llama.cpp" / "build",
         "server_bin": home / "llama.cpp" / "build" / "bin" / "llama-server",
-        "model_dir": home / "models" / "nemotron3-gguf",
-        "model_path": home / "models" / "nemotron3-gguf" / model_file,
+        "model_dir": model_dir,
+        "model_path": model_dir / model_file,
         "model_repo": model_repo,
         "model_file": model_file,
         "model_name": model_name,

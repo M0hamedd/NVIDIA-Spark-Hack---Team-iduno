@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 610 170" role="img" aria-labelledby="sobidTitle">
+  <title id="sobidTitle">SoBid</title>
+  <rect width="610" height="170" fill="#fff"/>
+  <defs>
+    <linearGradient id="sobidBlack" x1="24" x2="560" y1="42" y2="130" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#262626"/>
+      <stop offset="1" stop-color="#111"/>
+    </linearGradient>
+    <linearGradient id="sobidGreen" x1="128" x2="270" y1="28" y2="146" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#61bd5f"/>
+      <stop offset="0.52" stop-color="#05bf5d"/>
+      <stop offset="1" stop-color="#05843f"/>
+    </linearGradient>
+  </defs>
+
+  <g fill="url(#sobidBlack)" font-family="Arial Black, Arial, Helvetica, sans-serif" font-size="116" font-weight="900">
+    <text x="28" y="127" letter-spacing="-4">S</text>
+    <text x="282" y="127" letter-spacing="-8">Bid</text>
+  </g>
+
+  <g fill="none" stroke="url(#sobidGreen)" stroke-linecap="butt">
+    <path d="M137 49 Q197 12 257 49" stroke-width="22"/>
+    <path d="M157 75 Q197 50 237 75" stroke-width="19"/>
+    <circle cx="197" cy="103" r="47" stroke-width="18"/>
+  </g>
+  <circle cx="197" cy="103" r="25" fill="url(#sobidGreen)"/>
+</svg>

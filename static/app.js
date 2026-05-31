@@ -6,11 +6,21 @@ const DEMO_PROFILE_ORDER = [
 
 const DEFAULT_PROFILE_ID = DEMO_PROFILE_ORDER[0];
 
+const DEMO_MONTHS_2026 = [
+  { value: "2026-01-31", label: "January", days: 30 },
+  { value: "2026-02-28", label: "February", days: 30 },
+  { value: "2026-03-31", label: "March", days: 30 },
+  { value: "2026-04-30", label: "April", days: 30 },
+  { value: "2026-05-30", label: "May", days: 30 }
+];
+
+const DEFAULT_DEMO_MONTH = DEMO_MONTHS_2026[DEMO_MONTHS_2026.length - 1].value;
+
 const LOADING_PROFILE = {
   profile_id: "",
-  label: "Loading profiles",
-  name: "Loading supported profiles",
-  business_type: "Waiting for /api/health",
+  label: "Loading business types",
+  name: "Loading supported business types",
+  business_type: "Waiting for city listings",
   base_location: "Toronto",
   skills: [],
   ready_documents: [],
@@ -20,9 +30,9 @@ const LOADING_PROFILE = {
 };
 
 const PRIORITY_LABELS = {
-  best_win_chance: "Best Win Chance",
+  best_win_chance: "Best Chance",
   best_fit: "Best Fit",
-  highest_value: "Highest Value"
+  highest_value: "Best Value"
 };
 
 const state = {
@@ -32,7 +42,10 @@ const state = {
   selectedOpportunityId: "",
   activeView: "owner",
   priorityMode: "best_win_chance",
-  selectedProfileId: DEFAULT_PROFILE_ID
+  selectedProfileId: DEFAULT_PROFILE_ID,
+  selectedDemoMonth: DEFAULT_DEMO_MONTH,
+  scanRequestId: 0,
+  autoScanDone: false
 };
 
 const $ = (id) => document.getElementById(id);
@@ -40,15 +53,20 @@ const $ = (id) => document.getElementById(id);
 document.addEventListener("DOMContentLoaded", () => {
   renderProfileSelector();
   renderProfile(currentProfile());
+  syncMonthSelector();
   bindEvents();
-  resetWorkspace("Loading supported profiles from /api/health");
+  resetWorkspace("Loading business types from City of Toronto data. First decision pass will run automatically.");
   setBusy(false);
   checkHealth();
 });
 
 function bindEvents() {
   $("scanButton").addEventListener("click", () => runScan(false));
-  $("simulateButton").addEventListener("click", runSimulation);
+  $("monthSelector").addEventListener("change", (event) => {
+    state.selectedDemoMonth = event.target.value;
+    updateSnapshotLabel();
+    runSimulation();
+  });
   $("approveButton").addEventListener("click", approveDraft);
   $("ownerTab").addEventListener("click", () => setView("owner"));
   $("evidenceTab").addEventListener("click", () => setView("evidence"));
@@ -60,15 +78,24 @@ function bindEvents() {
       state.scan = null;
       const profile = currentProfile();
       renderProfile(profile);
-      resetWorkspace(`${profileLabel(profile)} selected. Run a fresh scan for this persona.`);
-      showToast(`${profileLabel(profile)} selected. Run a fresh scan.`);
+      resetWorkspace(`${profileLabel(profile)} selected. Re-ranking Toronto contracts for this lane.`);
+      runScan(false, {
+        busyMessage: `Re-ranking ${profileLabel(profile)}`,
+        doneMessage: `${profileLabel(profile)} matches ready`,
+        toast: false
+      });
     }
   });
   document.querySelectorAll('input[name="priorityMode"]').forEach((input) => {
     input.addEventListener("change", () => {
       state.priorityMode = getPriorityMode();
       if (state.scan) {
-        $("lastRun").textContent = `Priority changed to ${PRIORITY_LABELS[state.priorityMode]}`;
+        $("lastRun").textContent = `Re-ranking for ${PRIORITY_LABELS[state.priorityMode]}`;
+        runScan(false, {
+          busyMessage: `Re-ranking for ${PRIORITY_LABELS[state.priorityMode]}`,
+          doneMessage: `${PRIORITY_LABELS[state.priorityMode]} queue ready`,
+          toast: false
+        });
       }
     });
   });
@@ -83,21 +110,32 @@ async function checkHealth() {
     renderProfileSelector();
     renderProfile(currentProfile());
     if (!state.scan) {
-      resetWorkspace(`${profileLabel(currentProfile())} loaded. Run a live scan to rank current Toronto opportunities.`);
+      resetWorkspace(`${profileLabel(currentProfile())} loaded. Find Toronto contracts that fit.`);
     }
-    $("healthStatus").textContent = "System online";
+    $("healthStatus").textContent = "City listings ready";
     $("healthStatus").className = "status-pill ok";
-    $("gpuStatus").textContent = `DGX: ${compactRuntimeStatus(health.gpu)}`;
-    $("nemotronStatus").textContent = `NIM: ${compactRuntimeStatus(health.nemotron)}`;
-    setBusy(false);
+    $("gpuStatus").textContent = `Local: ${compactRuntimeStatus(health.gpu)}`;
+    $("nemotronStatus").textContent = `Brief: ${compactRuntimeStatus(health.nemotron)}`;
     if (!state.supportedProfiles.length) {
-      showToast("Health returned no supported demo profiles.");
+      setBusy(false);
+      showToast("No supported business types were returned.");
+      return;
     }
+    if (!state.scan && !state.autoScanDone) {
+      state.autoScanDone = true;
+      await runScan(false, {
+        busyMessage: `Ranking ${selectedDemoMonth().label} Toronto contracts`,
+        doneMessage: `${selectedDemoMonth().label} decision queue ready`,
+        toast: false
+      });
+      return;
+    }
+    setBusy(false);
   } catch (error) {
-    $("healthStatus").textContent = "Backend unavailable";
+    $("healthStatus").textContent = "City listings unavailable";
     $("healthStatus").className = "status-pill error";
-    $("gpuStatus").textContent = "DGX Spark: unknown";
-    $("nemotronStatus").textContent = "Nemotron: unknown";
+    $("gpuStatus").textContent = "Local processing: unknown";
+    $("nemotronStatus").textContent = "Bid brief: unknown";
     state.supportedProfiles = [];
     renderProfileSelector();
     renderProfile(currentProfile());
@@ -106,57 +144,77 @@ async function checkHealth() {
   }
 }
 
-async function runScan(refresh) {
+async function runScan(refresh = false, options = {}) {
   const profile = currentProfile();
+  const month = selectedDemoMonth();
   if (!profile.profile_id) {
-    showToast("Supported profiles are still loading from /api/health.");
+    showToast("Business types are still loading.");
     return;
   }
-  setBusy(true, "Scanning live procurement data");
+  const requestId = ++state.scanRequestId;
+  setBusy(true, options.busyMessage || `Finding ${month.label} contract matches`);
   try {
     const result = await apiPost("/api/scan", {
       profile_id: profile.profile_id,
       business_profile: profile,
       priority_mode: getPriorityMode(),
+      as_of: month.value,
       refresh
     });
-    ingestResult(result, "Live scan complete");
+    if (requestId !== state.scanRequestId || profile.profile_id !== state.selectedProfileId) {
+      return;
+    }
+    ingestResult(result, options.doneMessage || `${month.label} matches ready`, {
+      toast: options.toast !== false
+    });
   } catch (error) {
     showToast(error.message);
   } finally {
-    setBusy(false);
+    if (requestId === state.scanRequestId) {
+      setBusy(false);
+    }
   }
 }
 
-async function runSimulation() {
+async function runSimulation(options = {}) {
   const profile = currentProfile();
+  const month = selectedDemoMonth();
   if (!profile.profile_id) {
-    showToast("Supported profiles are still loading from /api/health.");
+    showToast("Business types are still loading.");
     return;
   }
-  setBusy(true, "Simulating next monitoring day");
+  const requestId = ++state.scanRequestId;
+  setBusy(true, options.busyMessage || `Refreshing ${month.label} matches`);
   try {
     const result = await apiPost("/api/simulate", {
       profile_id: profile.profile_id,
       business_profile: profile,
       priority_mode: getPriorityMode(),
-      days: 1
+      as_of: month.value,
+      days: month.days
     });
-    ingestResult(result, "Next-day simulation complete");
+    if (requestId !== state.scanRequestId || profile.profile_id !== state.selectedProfileId) {
+      return;
+    }
+    ingestResult(result, options.doneMessage || `${month.label} matches ready`, {
+      toast: options.toast !== false
+    });
   } catch (error) {
     showToast(error.message);
   } finally {
-    setBusy(false);
+    if (requestId === state.scanRequestId) {
+      setBusy(false);
+    }
   }
 }
 
 async function approveDraft() {
   if (!state.selectedOpportunityId) {
-    showToast("Select an opportunity before approving.");
+    showToast("Select a city listing first.");
     return;
   }
 
-  setBusy(true, "Preparing approval packet");
+  setBusy(true, `Preparing ${approvalArtifactNoun()}`);
   try {
     const profile = currentProfile();
     const result = await apiPost("/api/approve", {
@@ -166,8 +224,8 @@ async function approveDraft() {
       opportunity_id: state.selectedOpportunityId
     });
     renderPacket(result.packet, result.approved);
-    $("packetStatus").textContent = result.approved ? "Approved" : "Blocked";
-    showToast("Approval packet prepared");
+    $("packetStatus").textContent = result.approved ? "Prepared" : "Needs a closer look";
+    showToast(`${approvalArtifactTitle()} prepared`);
   } catch (error) {
     showToast(error.message);
   } finally {
@@ -175,8 +233,13 @@ async function approveDraft() {
   }
 }
 
-function ingestResult(result, message) {
+function ingestResult(result, message, options = {}) {
   state.scan = result;
+  const resultMonth = demoMonthForDate(result.as_of);
+  if (resultMonth) {
+    state.selectedDemoMonth = resultMonth.value;
+    syncMonthSelector();
+  }
   state.selectedProfileId = selectProfileId(
     (result.business_profile && result.business_profile.profile_id) || state.selectedProfileId
   );
@@ -187,10 +250,13 @@ function ingestResult(result, message) {
 
   renderProfileSelector();
   renderProfile(result.business_profile || currentProfile());
+  updateSnapshotLabel();
   renderOwner(result);
   renderEvidence(result);
   $("approveButton").disabled = !canApproveCurrent();
-  showToast(message);
+  if (options.toast !== false) {
+    showToast(message);
+  }
 }
 
 function renderProfileSelector() {
@@ -200,7 +266,7 @@ function renderProfileSelector() {
   }
   const profiles = state.supportedProfiles;
   if (!profiles.length) {
-    container.innerHTML = "<p class=\"profile-loading\">Loading supported profiles from /api/health...</p>";
+    container.innerHTML = "<p class=\"profile-loading\">Loading business types...</p>";
     return;
   }
   container.innerHTML = profiles.map((profile) => `
@@ -228,53 +294,57 @@ function renderProfile(profile) {
 }
 
 function resetWorkspace(message) {
-  $("decisionHeadline").textContent = "Ready to scan city opportunities";
-  $("lastRun").textContent = message || "No scan yet";
+  updateSnapshotLabel();
+  $("decisionHeadline").textContent = "Preparing procurement decision queue";
+  $("lastRun").textContent = message || "No search yet";
   $("summaryRecommendation").textContent = "Waiting";
-  $("summaryDeadline").textContent = "Not scanned";
-  $("summaryTask").textContent = "Run scan";
+  $("summaryDeadline").textContent = "Not checked";
+  $("summaryTask").textContent = "Ranking current listings";
   $("summaryFit").textContent = "No signal yet";
   $("topCount").textContent = "0";
   $("watchCount").textContent = "0";
   $("timelineCount").textContent = "0";
   $("topOpportunities").className = "docket-list empty-list";
-  $("topOpportunities").innerHTML = "<p>Run a scan to find contracts worth acting on.</p>";
+  $("topOpportunities").innerHTML = "<p>The first profile-specific scan will rank listings into pursue, review, monitor, and pass.</p>";
   $("watchlist").className = "docket-list empty-list";
-  $("watchlist").innerHTML = "<p>Relevant but not ready opportunities will appear here.</p>";
+  $("watchlist").innerHTML = "<p>Listings to keep an eye on will appear here.</p>";
   $("selectedOpportunityDetail").className = "selected-detail empty-list";
-  $("selectedOpportunityDetail").innerHTML = "<p>Select an opportunity after a scan to inspect deadline pressure, award history, capacity, and approval readiness.</p>";
+  $("selectedOpportunityDetail").innerHTML = "<p>Select a city listing to see what it is, why it matched, and what to do next.</p>";
   $("gateStatus").textContent = "Waiting";
   $("decisionGateChecklist").className = "gate-checklist empty-list";
-  $("decisionGateChecklist").innerHTML = "<p>Run a scan to build the bid gate.</p>";
+  $("decisionGateChecklist").innerHTML = "<p>Find matches to see whether this looks ready to bid.</p>";
+  $("timeline").hidden = true;
   $("timeline").className = "timeline empty-list";
-  $("timeline").innerHTML = "<p>Run a simulation to see alerts, deadline pressure, and approval events.</p>";
-  $("packetStatus").textContent = "Not prepared";
+  $("timeline").innerHTML = "<p>Pick a month to see deadline reminders and next steps.</p>";
+  $("packetStatus").textContent = "Not ready";
+  $("packetOutput").hidden = true;
   $("packetOutput").className = "packet-output empty-list";
-  $("packetOutput").innerHTML = "<p>Select an opportunity and approve the draft to prepare the packet.</p>";
+  $("packetOutput").innerHTML = `<p>Select a listing and prepare ${approvalArtifactNoun()} when the ready check passes.</p>`;
   $("metricSolicitations").textContent = "0";
   $("metricAwards").textContent = "0";
   $("metricRejected").textContent = "0";
   $("metricRuntime").textContent = "0 ms";
   $("metricRecordsPerSecond").textContent = "0";
   $("metricModelCallsAvoided").textContent = "0";
-  $("metricNvidiaPath").textContent = "Fallback";
+  $("metricNvidiaPath").textContent = "Pending";
   $("metricBacktestInsight").textContent = "0";
   $("engineLabel").textContent = "Python";
   $("skipCount").textContent = "0";
   $("evaluatedCount").textContent = "0";
   $("pipelineDetails").className = "pipeline-list empty-list";
-  $("pipelineDetails").innerHTML = "<p>Evidence appears after a scan.</p>";
+  $("pipelineDetails").innerHTML = "<p>Details appear after you find matches.</p>";
   $("skippedExamples").className = "docket-list empty-list";
-  $("skippedExamples").innerHTML = "<p>Rejected opportunities will show why the system saves owner time.</p>";
+  $("skippedExamples").innerHTML = "<p>Listings we passed on will show why they are probably not worth your time.</p>";
   $("scorecardStatus").textContent = "Waiting";
   $("scorecardDetails").className = "scorecard-grid empty-list";
-  $("scorecardDetails").innerHTML = "<p>Run a scan to see NVIDIA path, model efficiency, false-positive rejection, and historical insight proof.</p>";
+  $("scorecardDetails").innerHTML = "<p>Find matches to see the validation details behind the recommendations.</p>";
   $("evaluatedStream").className = "table-list empty-list";
-  $("evaluatedStream").innerHTML = "<p>Run a live scan to inspect the ranked stream.</p>";
+  $("evaluatedStream").innerHTML = "<p>Find matches to inspect every listing that was checked.</p>";
   $("approveButton").disabled = true;
 }
 
 function renderOwner(result) {
+  updateSnapshotLabel();
   const top = result.top_opportunities || [];
   const watch = result.watchlist || [];
   const timeline = result.timeline || [];
@@ -284,28 +354,28 @@ function renderOwner(result) {
   const summary = selected ? nextActionSummary(selected) : null;
 
   $("decisionHeadline").textContent = selected
-    ? `${summary.recommendation} / ${summary.deadline} / ${shortText(summary.task, 78)}`
-    : "No strong pursuit found today";
+    ? `${summary.recommendation}: ${summary.deadline}; ${shortText(summary.task, 78)}`
+    : "No strong match found today";
   $("lastRun").textContent = result.as_of
-    ? `As of ${result.as_of} - ${PRIORITY_LABELS[getPriorityMode()]}`
-    : `Latest scan - ${PRIORITY_LABELS[getPriorityMode()]}`;
-  $("summaryRecommendation").textContent = summary ? summary.recommendation : "No Pursue";
-  $("summaryDeadline").textContent = summary ? summary.deadline : "No active file";
-  $("summaryTask").textContent = summary ? summary.task : "Check Audit for skipped records";
+    ? `As of ${result.as_of} / ${PRIORITY_LABELS[getPriorityMode()]}`
+    : `Latest check / ${PRIORITY_LABELS[getPriorityMode()]}`;
+  $("summaryRecommendation").textContent = summary ? summary.recommendation : "No strong match";
+  $("summaryDeadline").textContent = summary ? summary.deadline : "No active listing";
+  $("summaryTask").textContent = summary ? summary.task : "See why we passed";
   $("summaryFit").textContent = summary ? summary.fit : "No strong match";
 
   $("topCount").textContent = String(top.length);
   $("watchCount").textContent = String(watch.length);
   $("timelineCount").textContent = String(timeline.length);
 
-  renderOpportunityList($("topOpportunities"), top, "No pursue or review opportunities found.");
-  renderOpportunityList($("watchlist"), watch, "No monitor items yet.");
+  renderOpportunityList($("topOpportunities"), top, "No good matches found.");
+  renderOpportunityList($("watchlist"), watch, "No listings to keep watching yet.");
   renderSelectedOpportunityDetail(selected);
   renderDecisionGate(selected, result);
   renderTimeline(timeline);
 
   if (!metrics || Object.keys(metrics).length === 0) {
-    $("packetStatus").textContent = "Not prepared";
+    $("packetStatus").textContent = "Not ready";
   }
 }
 
@@ -363,20 +433,24 @@ function opportunityCard(item) {
   const selected = id && id === state.selectedOpportunityId ? " selected" : "";
   const deadline = solicitation.submission_deadline || "No deadline listed";
   const dayText = deadlinePressureText(item);
-  const displayLabel = decisionLabel(item.label);
-  const decisionClass = `decision-${displayLabel.toLowerCase()}`;
+  const internalLabel = decisionLabel(item.label);
+  const displayLabel = ownerDecisionLabel(item.label);
+  const decisionClass = `decision-${internalLabel.toLowerCase()}`;
   const reason = queueReason(item);
-  const score = item.rank_score === undefined || item.rank_score === null ? "" : `Score ${item.rank_score}`;
+  const score = item.rank_score === undefined || item.rank_score === null ? "" : `Fit ${item.rank_score}`;
 
   return `
     <article class="opportunity-card ${decisionClass}${selected}" data-id="${escapeHtml(id)}" tabindex="0" role="button" aria-pressed="${selected ? "true" : "false"}">
       <div class="docket-main">
         <div class="card-topline">
           <h4 class="card-title">${escapeHtml(getCompactOpportunityTitle(item, 120))}</h4>
-          ${score ? `<span class="docket-score">${escapeHtml(score)}</span>` : ""}
+          <div class="card-badges">
+            <span class="label-pill ${labelClass(internalLabel)}">${escapeHtml(displayLabel)}</span>
+            ${score ? `<span class="docket-score">${escapeHtml(score)}</span>` : ""}
+          </div>
         </div>
         <div class="card-meta">
-          <span>Doc ${escapeHtml(id || "pending")}</span>
+          <span>Listing ${escapeHtml(id || "pending")}</span>
           <span>Due ${escapeHtml(deadline)}</span>
           <span>${escapeHtml(dayText)}</span>
         </div>
@@ -393,7 +467,7 @@ function renderSelectedOpportunityDetail(item) {
   }
   if (!item) {
     container.className = "selected-detail empty-list";
-    container.innerHTML = "<p>No actionable opportunity selected. Run a scan or choose a file from the queue.</p>";
+    container.innerHTML = "<p>No listing selected. Find matches or choose a city listing.</p>";
     return;
   }
 
@@ -410,8 +484,8 @@ function renderSelectedOpportunityDetail(item) {
   ].filter(Boolean).join(" / ");
   const officialDescription = String(solicitation.description || "").trim();
   const whatThisIs = shortText(
-    getPlainOpportunitySummary(item) || officialDescription || "Official scope summary is not listed in the feed.",
-    280
+    cleanDisplayText(getPlainOpportunitySummary(item) || officialDescription || "Official scope summary is not listed in the feed."),
+    240
   );
   const whyMatched = compactSentenceList(
     whyMatchedItems(item, trace, requirements),
@@ -422,7 +496,7 @@ function renderSelectedOpportunityDetail(item) {
   const blockers = blockerItems(item, trace, brief);
   const blockerText = compactSentenceList(
     blockers,
-    "No hard blocker surfaced. Confirm the source package before committing estimator time.",
+    "No clear deal-breaker surfaced. Confirm the city listing before spending estimating time.",
     2,
     240
   );
@@ -434,42 +508,51 @@ function renderSelectedOpportunityDetail(item) {
     <article class="selected-detail-card decision-brief">
       <div class="decision-brief-title">
         <div>
-          <p class="eyebrow">Decision Brief</p>
+          <p class="eyebrow">Decision Summary</p>
           <h4>${escapeHtml(getCompactOpportunityTitle(item, 180))}</h4>
+        </div>
+        <div class="brief-status-pills" aria-label="Listing status">
+          <span>${escapeHtml(fit)}</span>
+          <span>${escapeHtml(dayText)}</span>
         </div>
       </div>
 
-      <div class="brief-meta">
-        ${renderSelectedKpi("Document", getOpportunityId(item) || "Not listed")}
-        ${renderSelectedKpi("Deadline", `${deadline} / ${dayText}`)}
-        ${renderSelectedKpi("Buyer Contact", buyer || "Toronto buyer not listed")}
-        ${renderSelectedKpi("Fit", fit)}
-      </div>
+      <dl class="brief-facts">
+        ${renderSelectedFact("Listing", getOpportunityId(item) || "Not listed")}
+        ${renderSelectedFact("Deadline", deadline)}
+        ${renderSelectedFact("Contact", buyer || "Toronto contact not listed", "wide")}
+      </dl>
+
+      ${renderDecisionBriefBlock("Next Step", nextStep, "action primary")}
 
       <div class="brief-grid">
-        ${renderDecisionBriefBlock("What this is", whatThisIs)}
-        ${renderDecisionBriefBlock("Why it matched", whyMatched)}
-        ${renderDecisionBriefBlock("What could block us", blockerText, blockers.length ? "warning" : "")}
-        ${renderDecisionBriefBlock("What to do next", nextStep, "action")}
+        ${renderDecisionBriefBlock("Scope", whatThisIs)}
+        ${renderDecisionBriefBlock("Why It Matched", whyMatched)}
+        ${renderDecisionBriefBlock("Risk To Check", blockerText, blockers.length ? "warning" : "")}
       </div>
     </article>
   `;
 }
 
-function renderSelectedKpi(label, value) {
+function renderSelectedFact(label, value, modifier = "") {
   return `
-    <div class="selected-kpi">
-      <span class="selected-detail-label">${escapeHtml(label)}</span>
-      <strong>${escapeHtml(value)}</strong>
+    <div class="${modifier ? `brief-fact-${escapeHtml(modifier)}` : ""}">
+      <dt>${escapeHtml(label)}</dt>
+      <dd>${escapeHtml(value)}</dd>
     </div>
   `;
 }
 
 function renderDecisionBriefBlock(label, body, tone = "") {
+  const toneClass = String(tone || "")
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((token) => `brief-${token}`)
+    .join(" ");
   return `
-    <section class="brief-block ${tone ? `brief-${escapeHtml(tone)}` : ""}">
+    <section class="brief-block ${escapeHtml(toneClass)}">
       <span class="selected-detail-label">${escapeHtml(label)}</span>
-      <p>${escapeHtml(body)}</p>
+      <p>${escapeHtml(cleanDisplayText(body))}</p>
     </section>
   `;
 }
@@ -495,7 +578,7 @@ function renderDecisionGate(item, result) {
   if (!item) {
     gateStatus.textContent = "Waiting";
     checklist.className = "gate-checklist empty-list";
-    checklist.innerHTML = "<p>Run a scan to build the bid gate.</p>";
+    checklist.innerHTML = "<p>Find matches to see whether this looks ready to bid.</p>";
     return;
   }
 
@@ -513,24 +596,22 @@ function renderDecisionGate(item, result) {
   const sourceReady = Boolean(source && !source.is_demo_record);
   const capacityReady = !capacityWarnings.length;
   const documentsReady = Boolean(documents.length || sourceReady);
-  const packetReady = Boolean(brief && brief.source === "local_nim" && decisionLabel(item.label) !== "Skip");
   const deadlineReady = item.days_until_deadline === undefined || item.days_until_deadline === null
     ? false
     : item.days_until_deadline >= 0;
   const checks = [
     ["Deadline", deadlineReady ? deadlinePressureText(item) : "Deadline missing or expired", deadlineReady],
-    ["Capacity", capacityReady ? (assessment && assessment.recommended_action ? assessment.recommended_action : "No owner blocker surfaced") : shortText(capacityWarnings[0], 110), capacityReady],
-    ["Documents", documentsReady ? shortText(documents.length ? documents.slice(0, 2).join(", ") : "Source package available", 110) : "Open source package before bid work", documentsReady],
-    ["Nemotron / Packet", packetReady ? "Owner-ready brief can support approval packet" : "Packet stays guarded until local brief is ready", packetReady]
+    ["Team Capacity", capacityReady ? (assessment && assessment.recommended_action ? cleanDisplayText(assessment.recommended_action) : "No capacity problem found") : shortText(cleanDisplayText(capacityWarnings[0]), 110), capacityReady],
+    ["City Listing", documentsReady ? shortText(documents.length ? documents.slice(0, 2).map(cleanDisplayText).join(", ") : "Listing page available", 110) : "Open the city listing before bid work", documentsReady]
   ];
   const approvedChecks = checks.filter(([, , ok]) => ok).length;
-  gateStatus.textContent = `${approvedChecks}/${checks.length} clear`;
+  gateStatus.textContent = `${approvedChecks}/${checks.length} ready`;
   gateStatus.className = `count-pill ${approvedChecks === checks.length ? "gate-ready" : "gate-review"}`;
   checklist.className = "gate-checklist";
   checklist.innerHTML = `
     <div class="gate-owner-task">
-      <span>Required action</span>
-      <strong>${escapeHtml(ownerTaskText(item))}</strong>
+      <span>Next step</span>
+      <strong>${escapeHtml(cleanDisplayText(ownerTaskText(item)))}</strong>
     </div>
     <ol>
       ${checks.map(([name, detail, ok]) => `
@@ -553,46 +634,46 @@ function renderPipeline(metrics) {
   const warnings = firstItems(metrics.warnings || [], 2);
   const stages = [
     {
-      name: "Open Data Feed",
+      name: "City Listings",
       output: metrics.solicitations_loaded
-        ? `Toronto Open Data returned ${number(metrics.solicitations_loaded)} solicitations and ${number(metrics.awards_loaded)} award records; deterministic shortlisting avoided ${number(metrics.model_calls_avoided)} model call(s).`
-        : "Toronto Open Data feed is ready for the next scan."
+        ? `Checked ${number(metrics.solicitations_loaded)} current listings and ${number(metrics.awards_loaded)} past awards; avoided ${number(metrics.model_calls_avoided)} unnecessary deep check(s).`
+        : "Toronto city listings are ready for the next search."
     },
     {
-      name: "Contract Parser",
+      name: "Read The Listing",
       output: selected
-        ? `${solicitation.solicitation_type || "Solicitation"} from ${solicitation.buyer || solicitation.division || "Toronto buyer"}; deadline ${solicitation.submission_deadline || "not listed"}.`
-        : "No contract selected yet."
+        ? `${solicitation.solicitation_type || "City listing"} from ${solicitation.buyer || solicitation.division || "Toronto"}; deadline ${solicitation.submission_deadline || "not listed"}.`
+        : "No city listing selected yet."
     },
     {
-      name: "Requirement Extractor",
+      name: "Needed Documents",
       output: requirementExtractionLanguage(selected, structuredRequirements, requirements, solicitation),
       source: extractorSourceLabel(structuredRequirements)
     },
     {
-      name: "Profile Matcher",
+      name: "Business Fit",
       output: supporting.coreFit
-        ? `Core Fit: ${supporting.coreFit}. ${reasons[0] || `Compared against ${currentProfile().label} capabilities.`}`
-        : reasons[0] || `Compares scope to ${currentProfile().name} services and capacity.`
+        ? `Fit: ${ownerText(supporting.coreFit)}. ${ownerText(reasons[0] || `Compared against ${currentProfile().label} work and capacity.`)}`
+        : ownerText(reasons[0] || `Compares the work to ${currentProfile().name}'s services and capacity.`)
     },
     {
-      name: "Award Comparator",
+      name: "Past Awards",
       output: awardLanguage(selected)
     },
     {
-      name: "Award-History Ranker",
+      name: "Market Signal",
       output: marketFitLanguage(selected),
       source: selected && getMarketFit(selected) ? "scikit-learn local model" : ""
     },
     {
-      name: "Risk Filter",
+      name: "Risk Check",
       output: riskLanguage(selected, supporting, structuredRequirements)
     },
     {
-      name: "Recommendation",
+      name: "Bottom Line",
       output: selected
-        ? `${decisionLabel(selected.label)} under ${PRIORITY_LABELS[getPriorityMode()]}. ${finalReason(selected, structuredRequirements)}`
-        : `Waiting for a scan using ${PRIORITY_LABELS[getPriorityMode()]}.`
+        ? `${ownerDecisionLabel(selected.label)} under ${PRIORITY_LABELS[getPriorityMode()]}. ${ownerText(finalReason(selected, structuredRequirements))}`
+        : `Waiting for matches using ${PRIORITY_LABELS[getPriorityMode()]}.`
     }
   ];
 
@@ -607,8 +688,8 @@ function renderPipeline(metrics) {
       <div class="stage-body">
         <h4>${escapeHtml(stage.name)}</h4>
         ${stage.source ? `<div class="source-label">${escapeHtml(stage.source)}</div>` : ""}
-        <p>${escapeHtml(stage.output)}</p>
-        ${stage.note ? `<span>${escapeHtml(stage.note)}</span>` : ""}
+        <p>${escapeHtml(ownerText(stage.output))}</p>
+        ${stage.note ? `<span>${escapeHtml(ownerText(stage.note))}</span>` : ""}
       </div>
     </article>
   `).join("") + renderBidFitnessTrace(selected, structuredRequirements);
@@ -624,7 +705,7 @@ function renderScorecard(result) {
 
   if (!hasScorecard) {
     container.className = "scorecard-grid empty-list";
-    container.innerHTML = "<p>Run a scan to see NVIDIA path, model efficiency, false-positive rejection, and historical insight proof.</p>";
+    container.innerHTML = "<p>Find matches to see the validation details behind the recommendations.</p>";
     return;
   }
 
@@ -634,34 +715,34 @@ function renderScorecard(result) {
   const reductionText = `${Math.round(reduction * 100)}% shortlist reduction`;
   container.innerHTML = `
     <article class="scorecard-item">
-      <span>NVIDIA Stack</span>
+      <span>Local Processing</span>
       <strong>${escapeHtml(activeNvidia)}</strong>
-      <p>RAPIDS: ${escapeHtml(metrics.rapids_mode || "python_fallback")} | NIM: ${escapeHtml(metrics.nemotron_mode || "deterministic_fallback")}</p>
+      <p>${escapeHtml(runtimePathDetail(metrics))}</p>
     </article>
     <article class="scorecard-item">
-      <span>Model Efficiency</span>
+      <span>Checks Saved</span>
       <strong>${number(metrics.model_calls_avoided)} avoided</strong>
-      <p>${number(metrics.model_calls_attempted)} attempted | ${number(metrics.model_calls_successful)} successful | ${number(metrics.briefs_generated)} brief(s) | ${escapeHtml(reductionText)}</p>
+      <p>${number(metrics.model_calls_attempted)} deep checks attempted | ${number(metrics.model_calls_successful)} successful | ${number(metrics.briefs_generated)} brief(s) | ${escapeHtml(reductionText)}</p>
     </article>
     <article class="scorecard-item">
-      <span>Decision Reconciliation</span>
+      <span>Safety Check</span>
       <strong>${number(metrics.label_changes_after_extraction)} changed</strong>
-      <p>Validated Nemotron blockers can downgrade a pursuit to owner review before packet generation.</p>
+      <p>A bid brief can move a listing from "Recommended Bid" to "check first" before a checklist is made.</p>
     </article>
     <article class="scorecard-item">
-      <span>Market Model</span>
+      <span>Past-Winner Signal</span>
       <strong>${escapeHtml(metrics.market_model_mode || "not scored")}</strong>
       <p>${number(metrics.market_model_examples)} examples | precision@10 ${number(metrics.market_model_precision_at_10)} | lift ${number(metrics.market_model_top_decile_lift)}x</p>
     </article>
     <article class="scorecard-item">
-      <span>Insight Proof</span>
+      <span>Time Saved</span>
       <strong>${number(scorecard.false_positives_skipped)} skipped</strong>
       <p>${number(scorecard.similar_awards_grounded)} similar awards grounded | ${number(scorecard.estimated_bid_hours_saved)} bid-review hours saved</p>
     </article>
     <article class="scorecard-item wide">
-      <span>Judge Insight</span>
+      <span>Validation Insight</span>
       <strong>${number(scorecard.realistic_historical_opportunities)} realistic historical opportunities</strong>
-      <p>${escapeHtml(scorecard.top_insight || "Historical and false-positive evidence will appear after scan.")}</p>
+      <p>${escapeHtml(ownerText(scorecard.top_insight || "Historical and false-positive evidence will appear after you find matches."))}</p>
     </article>
     ${renderInsightOpportunityCard(scorecard)}
     ${renderSimilarAwardsCard(scorecard)}
@@ -676,22 +757,22 @@ function renderInsightOpportunityCard(scorecard) {
   if (!hasDisplayValue(best) || !best.document_number) {
     return "";
   }
-  const title = shortText(best.title || "Current opportunity", 150);
+  const title = shortText(best.title || "Current city listing", 150);
   const meta = [
-    best.label,
+    ownerDecisionLabel(best.label),
     best.division,
     best.deadline ? `Due ${best.deadline}` : "",
     best.award_range
   ].filter(Boolean).join(" | ");
-  const reason = best.decision_reason || "Top current item from the local bid-fitness engine.";
+  const reason = best.decision_reason || "Top current listing from the local fit check.";
   return `
     <article class="scorecard-item wide insight-opportunity">
-      <span>Best Current Opportunity</span>
+      <span>Best Current Match</span>
       <strong>${escapeHtml(best.document_number)} - ${escapeHtml(title)}</strong>
-      <p>${escapeHtml(meta || "Current scan top-ranked item")}</p>
+      <p>${escapeHtml(meta || "Top listing from this search")}</p>
       <ul class="proof-list">
-        <li>${escapeHtml(shortText(reason, 190))}</li>
-        ${firstItems(best.matched_terms || [], 3).map((term) => `<li>Matched: ${escapeHtml(term)}</li>`).join("")}
+        <li>${escapeHtml(shortText(ownerText(reason), 190))}</li>
+        ${firstItems(best.matched_terms || [], 3).map((term) => `<li>Matched: ${escapeHtml(ownerText(term))}</li>`).join("")}
       </ul>
     </article>
   `;
@@ -705,14 +786,14 @@ function renderSimilarAwardsCard(scorecard) {
   const range = scorecard.similar_award_range || "Award range available from historical records";
   return `
     <article class="scorecard-item wide similar-awards-card">
-      <span>Similar Awards</span>
+      <span>Similar Past Awards</span>
       <strong>${escapeHtml(range)}</strong>
       <ul class="proof-list">
         ${examples.map((award) => {
     const value = award.award_value_label || (award.award_value ? formatMoney(award.award_value) : "value not listed");
     const descriptor = shortText(award.description || award.document_number || "Historical award", 120);
     const division = award.division ? ` / ${award.division}` : "";
-    return `<li>${escapeHtml(value)}${escapeHtml(division)} - ${escapeHtml(descriptor)}</li>`;
+    return `<li>${escapeHtml(value)}${escapeHtml(division)} - ${escapeHtml(ownerText(descriptor))}</li>`;
   }).join("")}
       </ul>
     </article>
@@ -726,12 +807,12 @@ function renderFalsePositiveCategoriesCard(scorecard) {
   }
   return `
     <article class="scorecard-item wide false-positive-card">
-      <span>Rejected Keyword Traps</span>
-      <strong>${number(scorecard.false_positives_skipped)} false-positive matches skipped</strong>
+      <span>Listings We Passed On</span>
+      <strong>${number(scorecard.false_positives_skipped)} misleading matches skipped</strong>
       <ul class="proof-list">
         ${categories.map((category) => {
     const label = `${category.category || "Uncategorized"} / ${category.blocker || "weak evidence"}`;
-    return `<li>${escapeHtml(label)}: ${number(category.count)} skipped</li>`;
+    return `<li>${escapeHtml(ownerText(label))}: ${number(category.count)} skipped</li>`;
   }).join("")}
       </ul>
     </article>
@@ -745,12 +826,12 @@ function renderCapacityReviewCard(scorecard) {
     return "";
   }
   const lines = reasons.length
-    ? reasons.map((item) => `${item.reason || "Owner review required"} (${number(item.count)})`)
-    : examples.map((item) => `${item.document_number || "Opportunity"}: ${firstItems(item.capacity_warnings || item.reasons || [], 1)[0] || item.recommended_action || "owner review required"}`);
+    ? reasons.map((item) => `${ownerText(item.reason || "Needs a closer look")} (${number(item.count)})`)
+    : examples.map((item) => `${item.document_number || "Listing"}: ${ownerText(firstItems(item.capacity_warnings || item.reasons || [], 1)[0] || item.recommended_action || "needs a closer look")}`);
   return `
     <article class="scorecard-item wide capacity-card">
-      <span>Capacity Review</span>
-      <strong>${number(scorecard.capacity_downgrades)} pursue decisions held for review</strong>
+      <span>Team Capacity</span>
+      <strong>${number(scorecard.capacity_downgrades)} listings held for a closer look</strong>
       <ul class="proof-list">
         ${firstItems(lines, 4).map((line) => `<li>${escapeHtml(shortText(line, 180))}</li>`).join("")}
       </ul>
@@ -764,9 +845,9 @@ function renderBidFitnessTrace(item, requirements) {
       <article class="bid-fitness-trace empty-trace">
         <div class="trace-header">
           <div>
-            <p class="eyebrow">Bid Fitness Trace</p>
-            <h4>No opportunity selected</h4>
-            <span>Run a scan or select a row to inspect blockers, signals, rules, and rationale.</span>
+            <p class="eyebrow">Why This Decision</p>
+            <h4>No listing selected</h4>
+            <span>Find matches or select a row to see why it was recommended or passed over.</span>
           </div>
           <span class="count-pill">Waiting</span>
         </div>
@@ -777,32 +858,32 @@ function renderBidFitnessTrace(item, requirements) {
   const trace = normalizedBidFitnessTrace(item, requirements);
   const label = decisionLabel(item.label);
   const subtitle = label === "Skip"
-    ? "Skipped false-positive proof"
-    : "Selected opportunity proof";
+    ? "Why we passed on this listing"
+    : "Why this listing is shown";
 
   return `
     <article class="bid-fitness-trace">
       <div class="trace-header">
         <div>
-          <p class="eyebrow">Bid Fitness Trace</p>
+          <p class="eyebrow">Why This Decision</p>
           <h4>${escapeHtml(getTitle(item))}</h4>
           <span>${escapeHtml(subtitle)}</span>
         </div>
-        <span class="count-pill">${trace.hasBackendTrace ? "Backend trace" : "Fallback evidence"}</span>
+        <span class="count-pill">${trace.hasBackendTrace ? "Checked details" : "Basic evidence"}</span>
       </div>
       <div class="trace-grid">
-        ${renderTraceBucket("Hard Blockers", trace.hardBlockers, "blocker", "No hard blocker reported.")}
-        ${renderTraceBucket("Rules Triggered", trace.rulesTriggered, "rule", "No explicit rule trigger returned.")}
-        ${renderTraceBucket("Soft Warnings", trace.softWarnings, "warning", "No soft warning reported.")}
-        ${renderTraceBucket("Positive Signals", trace.positiveSignals, "positive", "No positive signal reported.")}
-        ${renderTraceBucket("Requirement Signals", trace.requirementSignals, "requirement", "No requirement signal reported.")}
-        ${renderTraceBucket("Capacity Gates", trace.capacityGates, "capacity", "No capacity gate reported.")}
-        ${renderTraceBucket("Historical Analogs", trace.historicalAnalogs, "history", "No historical analog returned.")}
-        ${renderTraceBucket("Scorecard Labels", trace.scorecardLabels, "scorecard", "No scorecard label returned.", 10)}
+        ${renderTraceBucket("Deal Breakers", trace.hardBlockers, "blocker", "No deal-breaker reported.")}
+        ${renderTraceBucket("Checks Used", trace.rulesTriggered, "rule", "No specific check returned.")}
+        ${renderTraceBucket("Things To Confirm", trace.softWarnings, "warning", "No warning reported.")}
+        ${renderTraceBucket("Why It Looks Good", trace.positiveSignals, "positive", "No positive signal reported.")}
+        ${renderTraceBucket("Documents / Requirements", trace.requirementSignals, "requirement", "No requirement signal reported.")}
+        ${renderTraceBucket("Team Capacity", trace.capacityGates, "capacity", "No capacity issue reported.")}
+        ${renderTraceBucket("Similar Past Awards", trace.historicalAnalogs, "history", "No similar past award returned.")}
+        ${renderTraceBucket("Summary Labels", trace.scorecardLabels, "scorecard", "No summary label returned.", 10)}
       </div>
       <div class="trace-rationale">
-        <span>Final Rationale</span>
-        <p>${escapeHtml(trace.finalRationale)}</p>
+        <span>Bottom Line</span>
+        <p>${escapeHtml(ownerText(trace.finalRationale))}</p>
       </div>
     </article>
   `;
@@ -814,7 +895,7 @@ function renderTraceBucket(label, items, modifier, emptyText, limit = 6) {
     <section class="trace-bucket trace-${escapeHtml(modifier)}">
       <h5>${escapeHtml(label)}</h5>
       ${safeItems.length
-    ? `<ul>${safeItems.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`
+    ? `<ul>${safeItems.map((item) => `<li>${escapeHtml(ownerText(item))}</li>`).join("")}</ul>`
     : `<p>${escapeHtml(emptyText)}</p>`}
     </section>
   `;
@@ -906,7 +987,7 @@ function requirementSignalItems(requirements) {
     ["certifications", "Certifications"],
     ["documents", "Documents"],
     ["facility_signals", "Facility signals"],
-    ["procurement_type", "Procurement type"]
+    ["procurement_type", "Buying process"]
   ];
   return fields.flatMap(([key, label]) => {
     const values = textItems(requirements[key]);
@@ -919,20 +1000,20 @@ function capacityGateItems(item, requirements) {
   const items = [];
   if (assessment) {
     if (assessment.pursuit_load) {
-      items.push(`Pursuit load: ${assessment.pursuit_load}`);
+      items.push(`Current bid load: ${assessment.pursuit_load}`);
     }
     if (assessment.response_capacity) {
-      items.push(`Response capacity: ${assessment.response_capacity}`);
+      items.push(`Time to respond: ${assessment.response_capacity}`);
     }
     if (assessment.execution_capacity) {
-      items.push(`Execution capacity: ${assessment.execution_capacity}`);
+      items.push(`Team capacity: ${assessment.execution_capacity}`);
     }
     if (assessment.recommended_action) {
-      items.push(`Recommended action: ${assessment.recommended_action}`);
+      items.push(`Suggested next step: ${ownerText(assessment.recommended_action)}`);
     }
   }
   if (requirements) {
-    items.push(...textItems(requirements.capacity_flags).map((flag) => `Capacity flag: ${flag}`));
+    items.push(...textItems(requirements.capacity_flags).map((flag) => `Capacity note: ${flag}`));
   }
   items.push(...capacityWarningItems(item));
   return items;
@@ -1064,7 +1145,7 @@ function renderEvaluatedStream(items) {
   const container = $("evaluatedStream");
   container.className = items.length ? "table-list" : "table-list empty-list";
   if (!items.length) {
-    container.innerHTML = "<p>No evaluated opportunities yet.</p>";
+    container.innerHTML = "<p>No checked listings yet.</p>";
     return;
   }
 
@@ -1073,7 +1154,7 @@ function renderEvaluatedStream(items) {
     return `
       <div class="stream-row">
         <strong>${escapeHtml(getCompactOpportunityTitle(item, 150))}</strong>
-        <span class="label-pill ${labelClass(decisionLabel(item.label))}">${escapeHtml(decisionLabel(item.label))}</span>
+        <span class="label-pill ${labelClass(item.label)}">${escapeHtml(ownerDecisionLabel(item.label))}</span>
         <span>${escapeHtml(solicitation.submission_deadline || "No deadline")}</span>
       </div>
     `;
@@ -1082,9 +1163,12 @@ function renderEvaluatedStream(items) {
 
 function renderTimeline(items) {
   const container = $("timeline");
+  if (!container) {
+    return;
+  }
   container.className = items.length ? "timeline" : "timeline empty-list";
   if (!items.length) {
-    container.innerHTML = "<p>Run a simulation to see alerts, deadline pressure, and approval events.</p>";
+    container.innerHTML = "<p>Pick a month to see deadline reminders and next steps.</p>";
     return;
   }
 
@@ -1096,8 +1180,8 @@ function renderTimeline(items) {
       <div class="timeline-item">
         <div class="timeline-date">${escapeHtml(String(date))}</div>
         <div class="timeline-body">
-          <strong>${escapeHtml(String(title))}</strong>
-          <span>${escapeHtml(String(body))}</span>
+          <strong>${escapeHtml(ownerText(String(title)))}</strong>
+          <span>${escapeHtml(ownerText(String(body)))}</span>
         </div>
       </div>
     `;
@@ -1106,26 +1190,38 @@ function renderTimeline(items) {
 
 function renderPacket(packet, approved) {
   const container = $("packetOutput");
+  if (!container) {
+    return;
+  }
   if (!packet) {
     container.className = "packet-output empty-list";
-    container.innerHTML = "<p>No packet returned.</p>";
+    container.innerHTML = `<p>No ${approvalArtifactNoun()} returned.</p>`;
+    container.hidden = false;
     return;
   }
 
   container.className = "packet-output";
+  container.hidden = false;
   const contact = packet.buyer_contact || {};
   const ownerReady = Boolean(packet.owner_ready);
   const requiresNemotron = Boolean(packet.requires_nemotron);
   const statusText = ownerReady
-    ? "Owner-ready Nemotron packet approved. Simulated submission only."
+    ? `${approvalArtifactTitle()} are ready for owner review. Submission is not sent from this workspace.`
     : requiresNemotron
-      ? "Blocked until local Nemotron generates the owner-ready brief."
-      : "Owner approval required.";
+      ? "Needs the local bid brief before it is ready to use."
+      : "Choose a listing first.";
+  const checklist = firstItems(packet.checklist || [], 3).map(cleanDisplayText);
+  const questions = firstItems(packet.clarification_questions || [], 2).map(cleanDisplayText);
+  const contactLines = [contact.name, contact.email, contact.phone].filter(Boolean);
   container.innerHTML = `
+    <div class="packet-result-title">
+      <span>Prepared ${escapeHtml(approvalArtifactTitle())}</span>
+      <strong>${escapeHtml(ownerReady ? "Ready" : "Review first")}</strong>
+    </div>
     <div class="packet-grid">
       <div class="packet-card packet-primary">
-        <strong>${escapeHtml(packet.title || "Bid packet")}</strong>
-        <span>${escapeHtml(packet.summary || "Packet prepared from computed evidence.")}</span>
+        <strong>${escapeHtml(shortText(cleanDisplayText(packet.title || `Prepared ${approvalArtifactNoun()}`), 120))}</strong>
+        <span>${escapeHtml(shortText(cleanDisplayText(packet.summary || `${approvalArtifactTitle()} prepared from the match details.`), 240))}</span>
       </div>
       <div class="packet-card packet-status-card">
         <strong>Status</strong>
@@ -1133,24 +1229,18 @@ function renderPacket(packet, approved) {
         ${packet.simulated_receipt ? `<p>${escapeHtml(packet.simulated_receipt)}</p>` : ""}
       </div>
       <div class="packet-card">
-        <strong>Checklist</strong>
-        ${renderList(packet.checklist || [])}
+        <strong>Next Steps</strong>
+        ${renderList(checklist)}
       </div>
-      <div class="packet-card">
-        <strong>Buyer Questions</strong>
-        ${renderList(packet.clarification_questions || [])}
-      </div>
+      ${questions.length ? `
+        <div class="packet-card">
+          <strong>Buyer Questions</strong>
+          ${renderList(questions)}
+        </div>
+      ` : ""}
       <div class="packet-card">
         <strong>Buyer Contact</strong>
-        ${renderList([contact.name, contact.email, contact.phone].filter(Boolean))}
-      </div>
-      <div class="packet-card">
-        <strong>SAP Ariba Steps</strong>
-        ${renderOrderedList(packet.sap_ariba_steps || [])}
-      </div>
-      <div class="packet-card">
-        <strong>Draft Email</strong>
-        <p class="draft-email">${escapeHtml(packet.draft_email || "No draft returned.")}</p>
+        ${renderList(contactLines)}
       </div>
     </div>
   `;
@@ -1166,9 +1256,17 @@ function setView(view) {
 
 function setBusy(isBusy, message = "") {
   const canRun = hasActiveProfile();
-  $("scanButton").disabled = isBusy || !canRun;
-  $("simulateButton").disabled = isBusy || !canRun;
-  $("approveButton").disabled = isBusy || !canApproveCurrent();
+  const scanButton = $("scanButton");
+  const approveButton = $("approveButton");
+  scanButton.disabled = isBusy || !canRun;
+  scanButton.textContent = isBusy ? "Scanning..." : (state.scan ? "Refresh Matches" : "Find Matches");
+  $("monthSelector").disabled = isBusy || !canRun;
+  approveButton.disabled = isBusy || !canApproveCurrent();
+  if (isBusy && message.toLowerCase().includes("bid notes")) {
+    approveButton.textContent = "Preparing...";
+  } else {
+    approveButton.innerHTML = "<span>Prepare Bid</span> <span>Notes</span>";
+  }
   if (isBusy && message) {
     showToast(message);
   }
@@ -1237,7 +1335,7 @@ function getTitle(item) {
   return getPlainOpportunitySummary(item)
     || solicitation.description
     || solicitation.document_number
-    || "Untitled opportunity";
+    || "Untitled city listing";
 }
 
 function getCompactOpportunityTitle(item, maxLength = 140) {
@@ -1299,10 +1397,10 @@ function getPlainOpportunitySummary(item) {
   }
   const category = String(solicitation.category || "").trim();
   if (category && division) {
-    return `${category} opportunity from ${division}.`;
+    return `${category} city listing from ${division}.`;
   }
   if (category) {
-    return `${category} opportunity.`;
+    return `${category} city listing.`;
   }
   return "";
 }
@@ -1348,7 +1446,7 @@ function briefSourceLabel(brief) {
     return "Bid brief";
   }
   if (brief.source === "local_nim") {
-    return "Nemotron bid brief";
+    return "Local bid brief";
   }
   if (brief.source === "deterministic_fallback") {
     return "Deterministic brief";
@@ -1368,10 +1466,10 @@ function renderSourceActions(source) {
     return "";
   }
   const documentNumber = source.document_number || "";
-  const docLabel = documentNumber ? `Doc ${documentNumber}` : "Toronto source";
+  const docLabel = documentNumber ? `Listing ${documentNumber}` : "Toronto listing";
   const note = source.is_demo_record
-    ? "Demo fallback record"
-    : source.verification_note || "Official Toronto source";
+    ? "Sample fallback record"
+    : source.verification_note || "Official Toronto listing";
   return `
     <div class="source-actions">
       <span class="source-doc">${escapeHtml(docLabel)}</span>
@@ -1398,11 +1496,11 @@ function renderOpportunityBrief(brief) {
     <div class="brief-panel ${brief.source === "local_nim" ? "brief-nim" : "brief-fallback"}">
       <div class="brief-heading">
         <strong>${escapeHtml(source)}</strong>
-        ${brief.source === "local_nim" ? "<span>Owner-ready</span>" : "<span>Packet blocked</span>"}
+        ${brief.source === "local_nim" ? "<span>Ready</span>" : "<span>Needs bid brief</span>"}
       </div>
       ${body ? `<p>${escapeHtml(body)}</p>` : ""}
       ${documents.length ? `<div class="brief-row"><span>Docs</span><em>${escapeHtml(documents.join(", "))}</em></div>` : ""}
-      ${blockers.length ? `<div class="brief-row warning"><span>Review</span><em>${escapeHtml(blockers.join(", "))}</em></div>` : ""}
+      ${blockers.length ? `<div class="brief-row warning"><span>Check</span><em>${escapeHtml(ownerText(blockers.join(", ")))}</em></div>` : ""}
       ${nextSteps.length ? `<div class="brief-row"><span>Next</span><em>${escapeHtml(nextSteps[0])}</em></div>` : ""}
     </div>
   `;
@@ -1427,6 +1525,16 @@ function labelClass(label) {
   return `label-${normalized}`;
 }
 
+function ownerDecisionLabel(label) {
+  const labels = {
+    Pursue: "Recommended Bid",
+    Review: "Check First",
+    Monitor: "Keep Watching",
+    Skip: "Pass"
+  };
+  return labels[decisionLabel(label)] || "Keep Watching";
+}
+
 function decisionLabel(label) {
   const normalized = String(label || "").trim().toLowerCase();
   const replacements = {
@@ -1440,6 +1548,58 @@ function decisionLabel(label) {
     skip: "Skip"
   };
   return replacements[normalized] || (label ? titleCase(label) : "Monitor");
+}
+
+function approvalArtifactNoun() {
+  return "bid notes";
+}
+
+function approvalArtifactTitle() {
+  return "Bid Notes";
+}
+
+function ownerText(value) {
+  return String(value || "")
+    .replace(/\bPursue Now\b/g, "Worth reviewing today")
+    .replace(/\bPursue After Review\b/g, "Check first, then decide")
+    .replace(/\bPursue\b/g, "Recommended Bid")
+    .replace(/\bReview\b/g, "Check First")
+    .replace(/\bMonitor\b/g, "Keep Watching")
+    .replace(/\bSkip\b/g, "Pass")
+    .replace(/\bsolicitations\b/gi, "city listings")
+    .replace(/\bsolicitation\b/gi, "city listing")
+    .replace(/\bsource package\b/gi, "city listing")
+    .replace(/\bsource file\b/gi, "city listing")
+    .replace(/\bsources\b/gi, "city listings")
+    .replace(/\bsource\b/gi, "city listing")
+    .replace(/\bapproval packet\b/gi, approvalArtifactNoun())
+    .replace(/\bowner-ready packet\b/gi, `ready-to-use ${approvalArtifactNoun()}`)
+    .replace(/\bpacket\b/gi, approvalArtifactNoun())
+    .replace(/\bready-to-use bid notes blocked\b/gi, `${approvalArtifactTitle()} need the local bid brief`)
+    .replace(/\bmodel call\(s\)\b/gi, "deep check(s)")
+    .replace(/\bmodel calls\b/gi, "deep checks")
+    .replace(/\bdeterministic\b/gi, "rule-based")
+    .replace(/\bfalse-positive\b/gi, "misleading")
+    .replace(/\bfalse positive\b/gi, "misleading")
+    .replace(/\bblocker\b/gi, "concern")
+    .replace(/\bblockers\b/gi, "concerns")
+    .replace(/\bcapacity gate\b/gi, "capacity check")
+    .replace(/\bowner review\b/gi, "a closer look")
+    .replace(/\bprocurement\b/gi, "city buying")
+    .replace(/\bopportunity\b/gi, "listing")
+    .replace(/\bopportunities\b/gi, "listings");
+}
+
+function cleanDisplayText(value) {
+  return ownerText(value)
+    .replace(/\s+/g, " ")
+    .replace(/\s+([,.;:!?])/g, "$1")
+    .replace(/\.;/g, ".")
+    .replace(/;\./g, ".")
+    .replace(/,;/g, ";")
+    .replace(/([,;:])(?=\S)/g, "$1 ")
+    .replace(/([.;:!?])\s+\1+/g, "$1")
+    .trim();
 }
 
 function getPriorityMode() {
@@ -1467,6 +1627,34 @@ function profileWithSupportedEvidence(profile) {
 
 function hasActiveProfile() {
   return Boolean(currentProfile().profile_id);
+}
+
+function selectedDemoMonth() {
+  return DEMO_MONTHS_2026.find((month) => month.value === state.selectedDemoMonth)
+    || DEMO_MONTHS_2026[DEMO_MONTHS_2026.length - 1];
+}
+
+function demoMonthForDate(value) {
+  const yearMonth = String(value || "").slice(0, 7);
+  if (!yearMonth) {
+    return null;
+  }
+  return DEMO_MONTHS_2026.find((month) => month.value.slice(0, 7) === yearMonth) || null;
+}
+
+function syncMonthSelector() {
+  const selector = $("monthSelector");
+  if (selector) {
+    selector.value = selectedDemoMonth().value;
+  }
+  updateSnapshotLabel();
+}
+
+function updateSnapshotLabel() {
+  const label = $("snapshotEyebrow");
+  if (label) {
+    label.textContent = `${selectedDemoMonth().label} 2026`;
+  }
 }
 
 function supportedProfilesFromHealth(health) {
@@ -1543,15 +1731,15 @@ function renderProfileEvidence(profile) {
 
   evidence.innerHTML = `
     <div>
-      <dt>Lane Basis</dt>
-      <dd>${escapeHtml(profile.lane_basis || "Waiting for backend lane evidence")}</dd>
+      <dt>Why This Type</dt>
+      <dd>${escapeHtml(ownerText(profile.lane_basis || "Waiting for city listing evidence"))}</dd>
     </div>
     <div>
-      <dt>2026 Solicitation Hits</dt>
+      <dt>2026 Matching Listings</dt>
       <dd>${profile.ytd_solicitation_hits === undefined ? "Not listed" : number(profile.ytd_solicitation_hits)}</dd>
     </div>
     <div>
-      <dt>Exclusive Best-Fit Hits</dt>
+      <dt>Strong Matches</dt>
       <dd>${profile.exclusive_best_fit_hits === undefined ? "Not listed" : number(profile.exclusive_best_fit_hits)}</dd>
     </div>
   `;
@@ -1569,9 +1757,9 @@ function renderActiveProfileEvidence(profile) {
   const divisions = firstItems(profile.top_divisions || [], 4);
   container.innerHTML = `
     <div>
-      <p class="eyebrow">Active Demo Persona</p>
+      <p class="eyebrow">Current Business Type</p>
       <h3>${escapeHtml(profileName)}</h3>
-      <p>Based on 2026 Toronto solicitation patterns: ${escapeHtml(profile.lane_basis || "lane evidence loads from /api/health")}.</p>
+      <p>Based on 2026 Toronto city listings: ${escapeHtml(ownerText(profile.lane_basis || "evidence loads from city listings"))}.</p>
     </div>
     <div class="active-profile-stats">
       <span><strong>${profile.ytd_solicitation_hits === undefined ? "0" : number(profile.ytd_solicitation_hits)}</strong> 2026 hits</span>
@@ -1633,16 +1821,16 @@ function extractorSourceLabel(requirements) {
     return "";
   }
   const sourceLabels = {
-    local_nim: "local NIM",
-    deterministic_fallback: "deterministic fallback"
+    local_nim: "local bid brief",
+    deterministic_fallback: "basic rule check"
   };
   const source = sourceLabels[requirements.source] || humanizeToken(requirements.source);
-  return `Extractor: ${source}`;
+  return `Brief from: ${source}`;
 }
 
 function requirementExtractionLanguage(item, requirements, fallbackTerms, solicitation) {
   if (!item) {
-    return "Requirements will appear after a candidate is evaluated.";
+    return "Requirements will appear after a listing is checked.";
   }
   if (requirements) {
     const parts = [];
@@ -1665,7 +1853,7 @@ function requirementExtractionLanguage(item, requirements, fallbackTerms, solici
       parts.push(`Facility signals: ${facilitySignals.join(", ")}`);
     }
     if (procurementType) {
-      parts.push(`Procurement type: ${procurementType}`);
+      parts.push(`Buying process: ${procurementType}`);
     }
     if (parts.length) {
       return parts.join(". ") + ".";
@@ -1674,7 +1862,7 @@ function requirementExtractionLanguage(item, requirements, fallbackTerms, solici
   if (fallbackTerms.length) {
     return `Found scope signals: ${fallbackTerms.join(", ")}.`;
   }
-  return `Used category and description to identify ${solicitation.category || "the procurement scope"}.`;
+  return `Used category and description to identify ${solicitation.category || "the type of work"}.`;
 }
 
 function awardLanguage(item) {
@@ -1691,7 +1879,7 @@ function awardLanguage(item) {
 
 function riskLanguage(item, supporting, requirements) {
   if (!item) {
-    return "Eligibility, effort, deadline, and capacity risks will be checked after scan.";
+    return "Eligibility, deadline, and team capacity will be checked after you find matches.";
   }
   const parts = [];
   const riskFlags = requirements ? firstItems(requirements.risk_flags, 3) : [];
@@ -1702,20 +1890,20 @@ function riskLanguage(item, supporting, requirements) {
   const deadlineRisk = (requirements && requirements.deadline_risk) || supporting.deadlineRisk;
 
   if (riskFlags.length) {
-    parts.push(`Risk flags: ${riskFlags.join(", ")}`);
+    parts.push(`Risks to check: ${riskFlags.join(", ")}`);
   }
   if (capacityFlags.length) {
-    parts.push(`Capacity flags: ${capacityFlags.join(", ")}`);
+    parts.push(`Capacity notes: ${capacityFlags.join(", ")}`);
   }
   if (rejectionReasons.length) {
-    parts.push(`Blockers: ${rejectionReasons.join(", ")}`);
+    parts.push(`Reasons to pass: ${rejectionReasons.join(", ")}`);
   }
   if (assessment) {
     parts.push(
-      `Pursuit Load: ${assessment.pursuit_load}`,
-      `Response Capacity: ${assessment.response_capacity}`,
-      `Execution Capacity: ${assessment.execution_capacity}`,
-      `Recommended Action: ${assessment.recommended_action}`
+      `Current bid load: ${assessment.pursuit_load}`,
+      `Time to respond: ${assessment.response_capacity}`,
+      `Team capacity: ${assessment.execution_capacity}`,
+      `Suggested next step: ${ownerText(assessment.recommended_action)}`
     );
   }
   if (assessmentWarnings.length) {
@@ -1728,7 +1916,7 @@ function riskLanguage(item, supporting, requirements) {
     parts.push(`Deadline risk: ${deadlineRisk}`);
   }
   if (supporting.pursuitEffort) {
-    parts.push(`Pursuit Effort: ${supporting.pursuitEffort}`);
+    parts.push(`Bid effort: ${supporting.pursuitEffort}`);
   }
   if (parts.length) {
     return parts.join(". ") + ".";
@@ -1740,7 +1928,7 @@ function riskLanguage(item, supporting, requirements) {
 function nextActionSummary(item) {
   const trace = normalizedBidFitnessTrace(item, getStructuredRequirements(item));
   return {
-    recommendation: decisionLabel(item.label),
+    recommendation: ownerDecisionLabel(item.label),
     deadline: deadlinePressureText(item),
     task: ownerTaskText(item),
     fit: fitConfidenceText(item, trace)
@@ -1776,7 +1964,7 @@ function queueReason(item) {
   const source = label === "Skip"
     ? blockerItems(item, trace, brief)
     : whyMatchedItems(item, trace, requirements);
-  return shortText(source[0] || finalReason(item, requirements), 128);
+  return shortText(ownerText(source[0] || finalReason(item, requirements)), 128);
 }
 
 function ownerTaskText(item) {
@@ -1790,28 +1978,28 @@ function ownerTaskText(item) {
   const days = item.days_until_deadline;
 
   if (label === "Skip") {
-    return blockers.length ? `Do not bid: ${shortText(blockers[0], 96)}` : "Do not spend bid time on this file";
+    return blockers.length ? `Pass for now: ${shortText(ownerText(blockers[0]), 96)}` : "Do not spend bid time on this listing";
   }
   if (warnings.length || (assessment && assessment.recommended_action === "Pursue After Review")) {
-    return "Review capacity risk before response";
+    return "Check team capacity before deciding";
   }
   if (Number(days) >= 0 && Number(days) <= 2) {
-    return "Confirm response capacity today";
+    return "Confirm today whether you can respond in time";
   }
   if (requirements && requirements.next_action) {
-    return shortText(requirements.next_action, 110);
+    return shortText(ownerText(requirements.next_action), 110);
   }
   const nextSteps = textItems(brief && brief.next_steps);
   if (nextSteps.length) {
-    return shortText(nextSteps[0], 110);
+    return shortText(ownerText(nextSteps[0]), 110);
   }
   if (label === "Pursue") {
-    return "Open source package and assign estimator";
+    return "Open the city listing and assign an estimator";
   }
   if (label === "Review") {
-    return "Resolve blocker before committing bid time";
+    return "Check the concern before spending bid time";
   }
-  return "Monitor for addenda or a stronger fit";
+  return "Keep an eye on it for updates or a better fit";
 }
 
 function fitConfidenceText(item, trace = null) {
@@ -1819,18 +2007,18 @@ function fitConfidenceText(item, trace = null) {
   const activeTrace = trace || normalizedBidFitnessTrace(item, getStructuredRequirements(item));
   const score = Number(item.rank_score);
   if (label === "Skip") {
-    return "Poor fit";
+    return "Not a fit";
   }
   if (activeTrace.positiveSignals.length >= 2 || score >= 70) {
     return "Strong scope match";
   }
   if (label === "Review") {
-    return "Good fit, risk flagged";
+    return "Good fit, check first";
   }
   if (label === "Monitor") {
-    return "Relevant watch";
+    return "Relevant, not urgent";
   }
-  return "Fit needs review";
+  return "Needs a closer look";
 }
 
 function whyMatchedItems(item, trace, requirements) {
@@ -1862,24 +2050,24 @@ function documentItems(item, requirements, brief) {
 }
 
 function compactSentenceList(items, fallback, limit = 2, maxLength = 220) {
-  const safeItems = firstItems(uniqueTextItems(textItems(items)), limit);
+  const safeItems = firstItems(uniqueTextItems(textItems(items).map(cleanDisplayText)), limit);
   if (!safeItems.length) {
     return fallback;
   }
-  return shortText(safeItems.join("; "), maxLength);
+  return shortText(cleanDisplayText(safeItems.join("; ")), maxLength);
 }
 
 function finalReason(item, requirements) {
   const assessment = getCapacityAssessment(item);
   const rejectionReasons = firstItems(item.rejection_reasons, 2);
   if (decisionLabel(item.label) === "Skip" && rejectionReasons.length) {
-    return `Blocked: ${rejectionReasons.join(", ")}`;
+    return `Reason to pass: ${rejectionReasons.join(", ")}`;
   }
   if (assessment && assessment.recommended_action === "Pursue After Review") {
-    return `Capacity gate: ${assessment.recommended_action}`;
+    return `Capacity check: ${ownerText(assessment.recommended_action)}`;
   }
   if (requirements && requirements.next_action) {
-    return `Next action: ${requirements.next_action}`;
+    return `Next step: ${requirements.next_action}`;
   }
   const reasons = item.reasons || item.rejection_reasons || [];
   if (reasons.length) {
@@ -1887,15 +2075,15 @@ function finalReason(item, requirements) {
   }
   const label = decisionLabel(item.label);
   if (label === "Pursue") {
-    return "Strong enough to justify owner attention.";
+    return "Strong enough to look at today.";
   }
   if (label === "Review") {
-    return "Potential fit with a risk requiring human judgment.";
+    return "Potential fit, but check one concern first.";
   }
   if (label === "Skip") {
-    return "Poor fit or likely waste of bid effort.";
+    return "Probably not worth your bid time.";
   }
-  return "Relevant, but not yet strong enough for immediate pursuit.";
+  return "Relevant, but not urgent enough for today.";
 }
 
 function getCapacityAssessment(item) {
@@ -2011,8 +2199,11 @@ function humanizeToken(value) {
 }
 
 function nvidiaPathLabel(metrics) {
-  if (!metrics || !metrics.nvidia_stack_active) {
-    return "Fallback";
+  if (!metrics) {
+    return "Pending";
+  }
+  if (!metrics.nvidia_stack_active) {
+    return "CPU local path";
   }
   const tools = metrics.active_nvidia_tools || [];
   if (tools.length) {
@@ -2025,6 +2216,15 @@ function nvidiaPathLabel(metrics) {
     return "NIM/Nemotron";
   }
   return "Active";
+}
+
+function runtimePathDetail(metrics) {
+  const rapidsMode = (metrics && metrics.rapids_mode) || "python_fallback";
+  const nimMode = (metrics && metrics.nemotron_mode) || "deterministic_fallback";
+  if (metrics && metrics.nvidia_stack_active) {
+    return `Active local acceleration: RAPIDS ${rapidsMode}; NIM ${nimMode}.`;
+  }
+  return `CPU local run; RAPIDS ${rapidsMode}; NIM ${nimMode}; DGX Spark hooks ready.`;
 }
 
 function formatStatus(value) {
@@ -2056,10 +2256,10 @@ function compactRuntimeStatus(value) {
     return "RAPIDS ready";
   }
   if (normalized.includes("cpu fallback")) {
-    return "CPU fallback";
+    return "CPU local";
   }
   if (normalized.includes("fallback")) {
-    return "fallback ready";
+    return "local fallback";
   }
   if (normalized.includes("local_nim")) {
     return "local NIM";

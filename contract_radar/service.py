@@ -47,7 +47,7 @@ class ContractRadarService:
             )
         return {
             "status": "ok",
-            "project": "Live Contract Radar",
+            "project": "SoBid",
             "track": "Economic Systems",
             "labels": ["Pursue", "Review", "Monitor", "Skip"],
             "priority_modes": ["best_win_chance", "best_fit", "highest_value"],
@@ -102,6 +102,7 @@ class ContractRadarService:
         metrics = _metrics(data_bundle, evaluated, start, nemotron_mode, nemotron_stats, market_model.summary)
         metrics_dict = metrics.to_dict()
         metrics_dict["priority_mode"] = priority_mode
+        technical_depth_proof = _technical_depth_proof(metrics_dict, scorecard)
         result = {
             "business_profile": profile.to_dict(),
             "as_of": today.isoformat(),
@@ -113,6 +114,7 @@ class ContractRadarService:
             "all_evaluated": [item.to_dict() for item in evaluated[:40]],
             "market_model": market_model.summary,
             "insight_scorecard": scorecard,
+            "technical_depth_proof": technical_depth_proof,
             "metrics": metrics_dict,
         }
         with self._lock:
@@ -231,6 +233,48 @@ def _metrics(
         fetched_at=getattr(data_bundle, "fetched_at", ""),
         warnings=getattr(data_bundle, "warnings", []),
     )
+
+
+def _technical_depth_proof(metrics: dict[str, Any], scorecard: dict[str, Any]) -> list[str]:
+    total_records = int(metrics.get("solicitations_loaded") or 0) + int(metrics.get("awards_loaded") or 0)
+    reduction_percent = round(float(metrics.get("shortlist_reduction_ratio") or 0.0) * 100, 1)
+    active_tools = metrics.get("active_nvidia_tools") or []
+    active_path = ", ".join(active_tools) if active_tools else (
+        f"fallback path (RAPIDS={metrics.get('rapids_mode', 'python_fallback')}, "
+        f"NIM={metrics.get('nemotron_mode', 'deterministic_fallback')})"
+    )
+    label_counts = metrics.get("label_counts") if isinstance(metrics.get("label_counts"), dict) else {}
+    decision_mix = ", ".join(
+        f"{label}={count}"
+        for label, count in sorted(label_counts.items())
+        if count
+    ) or "decision labels pending"
+    return [
+        (
+            "Pipeline: Toronto Open Data ingestion -> deterministic bid gates -> historical award "
+            "comparison -> temporal market model -> selective requirement extraction -> approval packet."
+        ),
+        (
+            f"Local scan processed {total_records:,} records and evaluated "
+            f"{int(metrics.get('opportunities_evaluated') or 0):,} opportunities in "
+            f"{int(metrics.get('runtime_ms') or 0):,} ms."
+        ),
+        (
+            f"Shortlisting reduced the model workload by {reduction_percent}% and avoided "
+            f"{int(metrics.get('model_calls_avoided') or 0):,} unnecessary model call(s)."
+        ),
+        (
+            f"Award-history ML used {int(metrics.get('market_model_examples') or 0):,} examples, "
+            f"precision@10 {float(metrics.get('market_model_precision_at_10') or 0.0):.2f}, "
+            f"and top-decile lift {float(metrics.get('market_model_top_decile_lift') or 0.0):.2f}x."
+        ),
+        (
+            f"Recommendations are grounded in {int(scorecard.get('similar_awards_grounded') or 0):,} "
+            f"similar awards while skipping {int(scorecard.get('false_positives_skipped') or 0):,} "
+            f"false-positive lookalike(s)."
+        ),
+        f"Runtime path: {active_path}; decision mix: {decision_mix}.",
+    ]
 
 
 def _market_cache_key(profile: Any, awards: list[Any]) -> str:

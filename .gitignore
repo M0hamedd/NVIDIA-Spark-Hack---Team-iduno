@@ -5,5 +5,8 @@ __pycache__/
 venv/
 data/cache/
 data/output/
+data/models/**/*.gguf
+data/models/**/*.gguf.*
+data/models/**/.cache/
 .env
 .codex_app_server_*.pid

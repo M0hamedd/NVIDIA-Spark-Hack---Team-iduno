@@ -43,6 +43,12 @@ class ServiceMetricsTests(unittest.TestCase):
         self.assertGreater(metrics["market_model_examples"], 0)
         self.assertGreaterEqual(metrics["market_model_precision_at_10"], 0)
         self.assertIn("market_model", scan)
+        self.assertIn("technical_depth_proof", scan)
+        self.assertGreaterEqual(len(scan["technical_depth_proof"]), 5)
+        self.assertIn("Pipeline:", scan["technical_depth_proof"][0])
+        self.assertTrue(
+            any("Award-history ML" in line for line in scan["technical_depth_proof"])
+        )
         self.assertIn("rapids_mode", metrics)
         self.assertIn("nvidia_stack_active", metrics)
         self.assertIn("insight_scorecard", scan)

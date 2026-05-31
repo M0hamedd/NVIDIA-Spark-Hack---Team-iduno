@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime
 from typing import Any
@@ -20,6 +21,8 @@ TORONTO_BIDS_SEARCH_URL = f"{TORONTO_BIDS_PORTAL_URL}#all"
 def source_links_for_solicitation(document_number: str, raw: dict[str, Any] | None = None) -> dict[str, Any]:
     record = raw or {}
     document = str(document_number or "").strip()
+    official_document = str(record.get("Document Number") or record.get("document_number") or "").strip()
+    row_id = _row_id_value(record)
     is_demo_record = _is_demo_solicitation(document, record)
     links: dict[str, Any] = {
         "document_number": document,
@@ -33,15 +36,29 @@ def source_links_for_solicitation(document_number: str, raw: dict[str, Any] | No
     }
 
     if document and not is_demo_record:
-        filters = json.dumps({"Document Number": document}, separators=(",", ":"))
-        links["open_data_record_url"] = (
-            f"{config.CKAN_DATASTORE_SEARCH_URL}?"
-            f"{urlencode({'resource_id': config.SOLICITATIONS_RESOURCE_ID, 'filters': filters})}"
-        )
-        links["verification_note"] = (
-            "Official Toronto Open Data record. Use this document number in the registered "
-            "supplier workflow to inspect the full solicitation package."
-        )
+        filters: dict[str, Any] = {"Document Number": official_document} if official_document else {}
+        if not filters and row_id is not None:
+            filters = {"_id": row_id}
+        if filters:
+            links["open_data_record_url"] = (
+                f"{config.CKAN_DATASTORE_SEARCH_URL}?"
+                f"{urlencode({'resource_id': config.SOLICITATIONS_RESOURCE_ID, 'filters': json.dumps(filters, separators=(',', ':'))})}"
+            )
+        if official_document:
+            links["verification_note"] = (
+                "Official Toronto Open Data record. Use this document number in the registered "
+                "supplier workflow to inspect the full solicitation package."
+            )
+        elif row_id is not None:
+            links["verification_note"] = (
+                "Official Toronto Open Data row with no document number in the export. SoBid "
+                "uses a stable row identifier so the end-to-end workflow can still track and verify it."
+            )
+        else:
+            links["verification_note"] = (
+                "Official Toronto Open Data record with no document number in the export. SoBid "
+                "uses a stable fingerprint so the workflow can still track it."
+            )
     elif is_demo_record:
         links["verification_note"] = (
             "Bundled dev fixture. Normal demo scans refuse these records and use Toronto Open Data only."
@@ -225,7 +242,7 @@ class Solicitation:
     @classmethod
     def from_record(cls, record: dict[str, Any]) -> "Solicitation":
         return cls(
-            document_number=str(record.get("Document Number") or record.get("document_number") or "").strip(),
+            document_number=_record_identifier(record, ("Document Number", "document_number"), "TOBIDS"),
             solicitation_type=str(record.get("RFx (Solicitation) Type") or record.get("solicitation_type") or ""),
             category=str(record.get("High Level Category") or record.get("category") or ""),
             description=str(
@@ -266,7 +283,7 @@ class AwardRecord:
     @classmethod
     def from_record(cls, record: dict[str, Any]) -> "AwardRecord":
         return cls(
-            document_number=str(record.get("Document Number") or record.get("document_number") or ""),
+            document_number=_record_identifier(record, ("Document Number", "document_number"), "TOAWARD"),
             solicitation_type=str(record.get("RFx (Solicitation) Type") or record.get("solicitation_type") or ""),
             category=str(record.get("High Level Category") or record.get("category") or ""),
             supplier=str(record.get("Successful Supplier") or record.get("supplier") or ""),
@@ -281,6 +298,48 @@ class AwardRecord:
         data = asdict(self)
         data["award_date"] = self.award_date.isoformat() if self.award_date else None
         return data
+
+
+def _record_identifier(record: dict[str, Any], keys: tuple[str, ...], prefix: str) -> str:
+    for key in keys:
+        value = str(record.get(key) or "").strip()
+        if value:
+            return value
+    row_id = _row_id_value(record)
+    if row_id is not None:
+        return f"{prefix}-ROW-{row_id}"
+    digest = hashlib.sha256(_record_fingerprint(record).encode("utf-8")).hexdigest()[:12].upper()
+    return f"{prefix}-ROW-{digest}"
+
+
+def _row_id_value(record: dict[str, Any]) -> int | str | None:
+    raw_value = record.get("_id")
+    if raw_value is None:
+        raw_value = record.get("id")
+    text = str(raw_value or "").strip()
+    if not text:
+        return None
+    return int(text) if text.isdigit() else text
+
+
+def _record_fingerprint(record: dict[str, Any]) -> str:
+    fields = (
+        "Solicitation Document Description",
+        "description",
+        "RFx (Solicitation) Type",
+        "solicitation_type",
+        "High Level Category",
+        "category",
+        "Division",
+        "division",
+        "Submission Deadline",
+        "submission_deadline",
+        "Successful Supplier",
+        "supplier",
+        "Award",
+        "award_value",
+    )
+    return "|".join(str(record.get(field) or "") for field in fields)
 
 
 @dataclass

@@ -57,6 +57,27 @@ class ProcurementDataTests(unittest.TestCase):
         self.assertEqual(query["resource_id"][0], config.SOLICITATIONS_RESOURCE_ID)
         self.assertEqual(json.loads(query["filters"][0]), {"Document Number": "0442011000"})
 
+    def test_missing_document_number_uses_stable_open_data_row_id(self) -> None:
+        solicitation = Solicitation.from_record(
+            {
+                "_id": 108,
+                "Document Number": None,
+                "RFx (Solicitation) Type": "RFT",
+                "High Level Category": "Construction Services",
+                "Solicitation Document Description": "Road reconstruction and sidewalk SOGR",
+                "Division": "Engineering & Construction Services",
+            }
+        )
+
+        links = solicitation.to_dict()["source_links"]
+        query = parse_qs(urlparse(links["open_data_record_url"]).query)
+
+        self.assertEqual(solicitation.document_number, "TOBIDS-ROW-108")
+        self.assertEqual(links["document_number"], "TOBIDS-ROW-108")
+        self.assertFalse(links["is_demo_record"])
+        self.assertEqual(json.loads(query["filters"][0]), {"_id": 108})
+        self.assertIn("no document number", links["verification_note"])
+
     def test_demo_solicitation_source_links_do_not_claim_real_listing(self) -> None:
         links = sample_solicitations()[0].to_dict()["source_links"]
 

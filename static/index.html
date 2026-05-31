@@ -3,25 +3,25 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Live Contract Radar</title>
+    <title>SoBid</title>
     <link rel="stylesheet" href="/static/vendor-modern-normalize.css">
-    <link rel="stylesheet" href="/static/styles.css">
+    <link rel="stylesheet" href="/static/styles.css?v=summary-cleanup-5">
   </head>
   <body>
     <div class="app-shell">
       <header class="app-topbar">
         <div class="brand-lockup">
-          <div class="brand-mark" aria-hidden="true">LCR</div>
-          <div>
-            <p class="eyebrow">Toronto Open Data / Local Bid Intelligence</p>
-            <h1>Live Contract Radar</h1>
+          <img class="brand-logo" src="/static/sobid-logo.svg" alt="SoBid">
+          <div class="sr-only">
+            <p>Toronto Contracts</p>
+            <h1>SoBid</h1>
           </div>
         </div>
 
         <div class="topbar-controls" aria-label="Business lens">
           <div class="active-lens">
-            <span>Lens</span>
-            <strong id="profileName">Loading profiles</strong>
+            <span>Business Type</span>
+            <strong id="profileName">Loading lanes</strong>
           </div>
 
           <fieldset id="profileOptions" class="profile-control" aria-label="Supported business profile"></fieldset>
@@ -42,22 +42,22 @@
           </fieldset>
 
           <details class="lens-details">
-            <summary>Lens Details</summary>
+            <summary>Business Details</summary>
             <div class="lens-detail-grid">
               <section class="profile-evidence-block">
-                <h3>Lane Evidence</h3>
-                <p class="profile-basis-note">Based on 2026 Toronto solicitation patterns</p>
+                <h3>Why This Business Type</h3>
+                <p class="profile-basis-note">Based on 2026 Toronto city listings</p>
                 <dl id="profileEvidence" class="profile-evidence"></dl>
                 <div class="profile-evidence-group">
-                  <span>Top Divisions</span>
+                  <span>City Departments</span>
                   <div id="profileDivisions" class="tag-grid compact"></div>
                 </div>
                 <div class="profile-evidence-group">
-                  <span>Good Fit Examples</span>
+                  <span>Usually Good Work</span>
                   <div id="profileGoodFit" class="tag-grid compact"></div>
                 </div>
                 <div class="profile-evidence-group">
-                  <span>Bad Fit Examples</span>
+                  <span>Usually Avoid</span>
                   <div id="profileBadFit" class="tag-grid compact warning-tags"></div>
                 </div>
               </section>
@@ -65,7 +65,7 @@
               <dl class="profile-facts">
                 <div>
                   <dt>Type</dt>
-                  <dd id="profileType">Waiting for /api/health</dd>
+                  <dd id="profileType">Waiting for city listings</dd>
                 </div>
                 <div>
                   <dt>Base</dt>
@@ -80,15 +80,15 @@
                   <dd id="profileCapacity">Not listed</dd>
                 </div>
                 <div>
-                  <dt>Active Bids</dt>
+                  <dt>Current Bids</dt>
                   <dd id="profilePursuits">Not listed</dd>
                 </div>
               </dl>
 
               <section>
-                <h3>Capabilities</h3>
+                <h3>Work You Do</h3>
                 <div id="profileSkills" class="tag-grid"></div>
-                <h3 class="inline-section-title">Ready Documents</h3>
+                <h3 class="inline-section-title">Documents on Hand</h3>
                 <div id="profileDocs" class="tag-grid compact"></div>
               </section>
             </div>
@@ -96,37 +96,37 @@
         </div>
 
         <nav class="view-tabs" aria-label="Views">
-          <button id="ownerTab" class="tab-button active" type="button">Triage</button>
-          <button id="evidenceTab" class="tab-button" type="button">Audit</button>
+          <button id="ownerTab" class="tab-button active" type="button">Matches</button>
+          <button id="evidenceTab" class="tab-button" type="button">Why These?</button>
         </nav>
 
         <div class="system-strip" aria-live="polite">
-          <span id="healthStatus" class="status-pill">Checking system</span>
-          <span id="gpuStatus" class="system-chip">DGX Spark: pending</span>
-          <span id="nemotronStatus" class="system-chip">Nemotron: pending</span>
+          <span id="healthStatus" class="status-pill">Checking city listings</span>
+          <span id="gpuStatus" class="system-chip">Local processing: pending</span>
+          <span id="nemotronStatus" class="system-chip">Bid brief: pending</span>
         </div>
       </header>
 
       <main class="main-panel" aria-label="Opportunity workspace">
-        <section id="ownerView" class="view-section active" aria-label="Owner triage view">
+        <section id="ownerView" class="view-section active" aria-label="Monthly matches view">
           <div class="decision-ribbon">
             <div>
-              <p class="eyebrow">Live Triage</p>
-              <h2 id="decisionHeadline">Ready to scan city opportunities</h2>
-              <span id="lastRun" class="last-run">No scan yet</span>
+              <p id="snapshotEyebrow" class="eyebrow">May 2026</p>
+              <h2 id="decisionHeadline">Ready to find city contracts</h2>
+              <span id="lastRun" class="last-run">No search yet</span>
             </div>
             <div class="next-action-grid" aria-label="Next action summary">
               <div>
-                <span>Recommendation</span>
+                <span>Suggestion</span>
                 <strong id="summaryRecommendation">Waiting</strong>
               </div>
               <div>
                 <span>Deadline</span>
-                <strong id="summaryDeadline">Not scanned</strong>
+                <strong id="summaryDeadline">Not checked</strong>
               </div>
               <div>
-                <span>Owner Task</span>
-                <strong id="summaryTask">Run scan</strong>
+                <span>Next Step</span>
+                <strong id="summaryTask">Find matches</strong>
               </div>
               <div>
                 <span>Fit</span>
@@ -139,91 +139,89 @@
             <section class="queue-column" aria-label="Opportunity queue">
               <div class="panel-heading-row">
                 <div>
-                  <p class="eyebrow">Bid Queue</p>
-                  <h3>Act Now</h3>
+                  <p class="eyebrow">Best Matches</p>
+                  <h3>Look At These</h3>
                 </div>
                 <span id="topCount" class="count-pill">0</span>
               </div>
               <div id="topOpportunities" class="docket-list empty-list">
-                <p>Run a scan to find contracts worth acting on.</p>
+                <p>Find matches to see city contracts worth your time.</p>
               </div>
 
               <div class="mini-heading">
-                <span>Monitor</span>
+                <span>Keep Watching</span>
                 <span id="watchCount" class="count-pill">0</span>
               </div>
               <div id="watchlist" class="docket-list compact-list empty-list">
-                <p>Relevant but not ready opportunities will appear here.</p>
+                <p>Relevant listings that are not urgent will appear here.</p>
               </div>
             </section>
 
-            <section class="dossier-column" aria-label="Selected bid dossier">
+            <section class="dossier-column" aria-label="Selected listing details">
               <div class="panel-heading-row">
                 <div>
-                  <p class="eyebrow">Decision Brief</p>
-                  <h3>Selected Bid</h3>
+                  <p class="eyebrow">Plain-English Summary</p>
+                  <h3>Selected Listing</h3>
                 </div>
               </div>
               <div id="selectedOpportunityDetail" class="selected-detail empty-list">
-                <p>Select an opportunity after a scan to inspect deadline pressure, award history, capacity, and approval readiness.</p>
+                <p>Select a city listing to see what it is, why it matched, and what to do next.</p>
               </div>
             </section>
 
-            <aside class="gate-column" aria-label="Decision gate">
-              <section class="action-dock" aria-label="Owner actions">
+            <aside class="gate-column" aria-label="Ready check">
+              <section class="action-dock" aria-label="Actions">
                 <div>
-                  <p class="eyebrow">Owner Action</p>
+                  <p class="eyebrow">Actions</p>
                   <h3>Decide Next Step</h3>
                 </div>
                 <div class="decision-actions">
-                  <button id="scanButton" class="primary-action" type="button">Run Scan</button>
-                  <button id="simulateButton" class="secondary-action" type="button">Sim Day</button>
-                  <button id="approveButton" class="approve-action" type="button" disabled>Approve</button>
+                  <button id="scanButton" class="primary-action" type="button">Find Matches</button>
+                  <label class="month-picker" for="monthSelector">
+                    <span>Month</span>
+                    <select id="monthSelector" aria-label="Demo month">
+                      <option value="2026-01-31">January</option>
+                      <option value="2026-02-28">February</option>
+                      <option value="2026-03-31">March</option>
+                      <option value="2026-04-30">April</option>
+                      <option value="2026-05-30" selected>May</option>
+                    </select>
+                  </label>
+                  <button id="approveButton" class="approve-action" type="button" disabled><span>Prepare Bid</span> <span>Notes</span></button>
                 </div>
               </section>
 
               <section class="gate-card">
                 <div class="panel-heading-row">
                   <div>
-                    <p class="eyebrow">Owner Gate</p>
-                    <h3>Approval Readiness</h3>
+                    <p class="eyebrow">Ready Check</p>
+                    <h3>Can We Bid?</h3>
                   </div>
                   <span id="gateStatus" class="count-pill">Waiting</span>
                 </div>
                 <div id="decisionGateChecklist" class="gate-checklist empty-list">
-                  <p>Run a scan to build the bid gate.</p>
+                  <p>Find matches to see whether this looks ready to bid.</p>
                 </div>
               </section>
 
-              <details class="secondary-drawer">
-                <summary>
-                  Packet Ledger
-                  <span id="packetStatus" class="count-pill">Not prepared</span>
-                </summary>
-                <div id="packetOutput" class="packet-output empty-list">
-                  <p>Select an opportunity and approve the draft to prepare the packet.</p>
-                </div>
-              </details>
-
-              <details class="secondary-drawer">
-                <summary>
-                  Watch Desk
-                  <span id="timelineCount" class="count-pill">0</span>
-                </summary>
-                <div id="timeline" class="timeline empty-list">
-                  <p>Run a simulation to see alerts, deadline pressure, and approval events.</p>
-                </div>
-              </details>
+              <span id="packetStatus" class="count-pill" hidden>Not ready</span>
+              <div id="packetOutput" class="packet-output empty-list" hidden>
+                <p>Select a listing and prepare bid notes when the ready check passes.</p>
+              </div>
+              <span id="timelineCount" class="count-pill" hidden>0</span>
+              <div id="timeline" class="timeline empty-list" hidden>
+                <p>Pick a month to see deadline reminders and next steps.</p>
+              </div>
             </aside>
           </div>
         </section>
 
-        <section id="evidenceView" class="view-section" aria-label="Audit view">
+        <section id="evidenceView" class="view-section" aria-label="Ops proof view">
           <section id="activeProfileEvidence" class="active-profile-evidence" aria-label="Active profile evidence"></section>
 
           <div class="audit-counters">
             <div class="metric-tile">
-              <span>Solicitations</span>
+              <span>City Listings</span>
               <strong id="metricSolicitations">0</strong>
             </div>
             <div class="metric-tile">
@@ -231,7 +229,7 @@
               <strong id="metricAwards">0</strong>
             </div>
             <div class="metric-tile">
-              <span>Rejected</span>
+              <span>Passed On</span>
               <strong id="metricRejected">0</strong>
             </div>
             <div class="metric-tile">
@@ -239,16 +237,16 @@
               <strong id="metricRuntime">0 ms</strong>
             </div>
             <div class="metric-tile">
-              <span>Records/Sec</span>
+              <span>Checked/Sec</span>
               <strong id="metricRecordsPerSecond">0</strong>
             </div>
             <div class="metric-tile">
-              <span>Calls Avoided</span>
+              <span>Checks Saved</span>
               <strong id="metricModelCallsAvoided">0</strong>
             </div>
             <div class="metric-tile">
-              <span>NVIDIA Path</span>
-              <strong id="metricNvidiaPath">Fallback</strong>
+              <span>Local Path</span>
+              <strong id="metricNvidiaPath">Pending</strong>
             </div>
             <div class="metric-tile">
               <span>Backtest</span>
@@ -259,42 +257,42 @@
           <div class="audit-grid">
             <section class="audit-ledger-section" aria-label="Pipeline details">
               <div class="panel-heading-row">
-                <h3>Audit Ledger</h3>
+                <h3>How We Checked</h3>
                 <span id="engineLabel" class="count-pill">Python</span>
               </div>
               <div id="pipelineDetails" class="pipeline-list empty-list">
-                <p>Evidence appears after a scan.</p>
+                <p>Details appear after you find matches.</p>
               </div>
             </section>
 
             <section class="audit-proof-section" aria-label="Rejected examples">
               <div class="panel-heading-row">
-                <h3>False Positives</h3>
+                <h3>Why We Passed</h3>
                 <span id="skipCount" class="count-pill">0</span>
               </div>
               <div id="skippedExamples" class="docket-list empty-list">
-                <p>Rejected opportunities will show why the system saves owner time.</p>
+                <p>Listings we passed on will show why they are probably not worth your time.</p>
               </div>
             </section>
 
-            <section class="audit-proof-section" aria-label="Judge scorecard">
+            <section class="audit-proof-section" aria-label="Validation scorecard">
               <div class="panel-heading-row">
-                <h3>Judge Proof</h3>
+                <h3>Validation</h3>
                 <span id="scorecardStatus" class="count-pill">Waiting</span>
               </div>
               <div id="scorecardDetails" class="scorecard-grid empty-list">
-                <p>Run a scan to see NVIDIA path, model efficiency, false-positive rejection, and historical insight proof.</p>
+                <p>Find matches to see the validation details behind the recommendations.</p>
               </div>
             </section>
           </div>
 
           <details class="secondary-drawer stream-drawer">
             <summary>
-              Evaluated Stream
+              All Checked Listings
               <span id="evaluatedCount" class="count-pill">0</span>
             </summary>
             <div id="evaluatedStream" class="table-list empty-list">
-              <p>Run a live scan to inspect the ranked stream.</p>
+              <p>Find matches to inspect every listing that was checked.</p>
             </div>
           </details>
         </section>
@@ -302,6 +300,6 @@
     </div>
 
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
-    <script src="/static/app.js"></script>
+    <script src="/static/app.js?v=summary-cleanup-5"></script>
   </body>
 </html>

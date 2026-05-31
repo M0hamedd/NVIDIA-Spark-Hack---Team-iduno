@@ -22,7 +22,7 @@ service = ContractRadarService()
 
 
 class ContractRadarHandler(BaseHTTPRequestHandler):
-    server_version = "LiveContractRadar/0.1"
+    server_version = "SoBid/0.1"
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
@@ -106,14 +106,14 @@ def main() -> None:
             return
 
     server = ThreadingHTTPServer((HOST, PORT), ContractRadarHandler)
-    print(f"Live Contract Radar running at http://{HOST}:{PORT}")
+    print(f"SoBid running at http://{HOST}:{PORT}")
     if args.with_nemotron:
         print(f"Nemotron base URL: {os.environ.get('NIM_BASE_URL')}")
     print("Press Ctrl+C to stop.")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\nStopping Live Contract Radar.")
+        print("\nStopping SoBid.")
     finally:
         server.server_close()
         if args.with_nemotron:
@@ -121,7 +121,7 @@ def main() -> None:
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run the Live Contract Radar web app.")
+    parser = argparse.ArgumentParser(description="Run the SoBid web app.")
     parser.add_argument(
         "--with-nemotron",
         action="store_true",

@@ -54,7 +54,13 @@ To run the DGX Spark demo with local Nemotron, use:
 python3 app.py --with-nemotron
 ```
 
-The first run builds `llama.cpp`, downloads the Nemotron GGUF model, starts an OpenAI-compatible model server on `http://127.0.0.1:30000/v1`, then launches the app on `http://127.0.0.1:8080`. Later runs reuse the downloaded model and built server. Setup files live outside the repo in `~/.contract-radar/nemotron`, and model-server logs are written to `~/.contract-radar/nemotron/llama-server.log`.
+The first run builds `llama.cpp`, downloads the Q4 Nemotron GGUF model, starts an OpenAI-compatible model server on `http://127.0.0.1:30000/v1`, then launches the app on `http://127.0.0.1:8080`. Later runs reuse the downloaded model and built server. Runtime build files live outside the repo in `~/.contract-radar/nemotron`, model files default to `data/models/nemotron3-gguf`, and model-server logs are written to `~/.contract-radar/nemotron/llama-server.log`.
+
+If you manually download the model, place it here before starting the app:
+
+```bash
+data/models/nemotron3-gguf/Nemotron-3-Nano-30B-A3B-UD-Q4_K_XL.gguf
+```
 
 If you want to do the slow setup ahead of the demo:
 
@@ -142,6 +148,8 @@ $env:NIM_API_KEY=""
 $env:NIM_PREFLIGHT_TIMEOUT_SECONDS="0.2"
 $env:CONTRACT_RADAR_NEMOTRON_PORT="30000"
 $env:CONTRACT_RADAR_NEMOTRON_HOME="$HOME/.contract-radar/nemotron"
+$env:CONTRACT_RADAR_NEMOTRON_MODEL_DIR="data/models/nemotron3-gguf"
+$env:CONTRACT_RADAR_NEMOTRON_MODEL_FILE="Nemotron-3-Nano-30B-A3B-UD-Q4_K_XL.gguf"
 ```
 
 - `CONTRACT_RADAR_CACHE_DIR`: directory for cached Toronto Open Data responses.
@@ -152,7 +160,9 @@ $env:CONTRACT_RADAR_NEMOTRON_HOME="$HOME/.contract-radar/nemotron"
 - `NIM_API_KEY`: optional key if the local NIM endpoint requires one.
 - `NIM_PREFLIGHT_TIMEOUT_SECONDS`: fast preflight timeout before falling back to deterministic extraction.
 - `CONTRACT_RADAR_NEMOTRON_PORT`: port used by `python3 app.py --with-nemotron`.
-- `CONTRACT_RADAR_NEMOTRON_HOME`: local directory for the managed llama.cpp build, Hugging Face CLI venv, model file, and server log.
+- `CONTRACT_RADAR_NEMOTRON_HOME`: local directory for the managed llama.cpp build, Hugging Face CLI venv, and server log.
+- `CONTRACT_RADAR_NEMOTRON_MODEL_DIR`: local directory for manually downloaded or managed GGUF model files.
+- `CONTRACT_RADAR_NEMOTRON_MODEL_FILE`: GGUF model filename. Defaults to the smaller Q4 Nemotron file for demo speed.
 
 NIM/Nemotron is no longer just a nice-to-have in the owner workflow. The app can still rank opportunities deterministically when local NIM is unavailable, but owner-ready packet drafting is blocked until Nemotron generates a validated bid brief. When `NIM_BASE_URL` is reachable, the app asks a local Nemotron model for structured fields, blockers, required documents, clarification questions, next steps, and grounded buyer-email wording for already-shortlisted opportunities. Nemotron does **not** make the final `Pursue`, `Review`, `Monitor`, or `Skip` decision; validated blockers can downgrade a `Pursue` recommendation to `Review` through the bid-fitness policy.
 

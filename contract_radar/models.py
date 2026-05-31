@@ -111,12 +111,17 @@ class BusinessProfile:
     name: str = "Harbourfront Civil Works Ltd."
     business_type: str = "road, sidewalk, bridge, sewer, watermain, paving, and civil infrastructure contractor"
     base_location: str = "Toronto, GTA"
+    years_in_business: int = 12
     team_size: int = 28
     max_contract_value: float = 1800000.0
     max_sites_per_day: int = 4
     active_pursuit_count: int = 0
     max_active_pursuits: int = 3
     service_area: str = "Toronto"
+    crew_mix: str = "4 forepersons, 18 field staff, 3 estimators, 3 project coordinators"
+    insurance_coverage: str = "$5M CGL, automobile liability, WSIB clearance"
+    bonding_single_job_limit: float = 2000000.0
+    estimating_capacity: str = "2 formal submissions per week without overtime"
     lane_basis: str = "2026 YTD Toronto solicitations: road, sidewalk, bridge, watermain, sewer, paving, and traffic infrastructure work."
     ytd_solicitation_hits: int = 45
     exclusive_best_fit_hits: int = 29
@@ -167,6 +172,35 @@ class BusinessProfile:
             "traffic control plan",
         ]
     )
+    certifications: list[str] = field(
+        default_factory=lambda: [
+            "COR safety program in progress",
+            "Book 7 traffic control supervisors",
+            "Confined space awareness",
+        ]
+    )
+    owned_equipment: list[str] = field(
+        default_factory=lambda: [
+            "mini excavators",
+            "dump trucks",
+            "rollers and plate compactors",
+            "traffic control signage",
+        ]
+    )
+    recent_municipal_work: list[str] = field(
+        default_factory=lambda: [
+            "sidewalk bay replacements",
+            "localized road cut restoration",
+            "catch basin and curb repairs",
+        ]
+    )
+    bid_constraints: list[str] = field(
+        default_factory=lambda: [
+            "avoids design-build scopes above bonding comfort",
+            "needs at least 10 days for complex traffic staging plans",
+            "prefers Toronto jobs within a 45-minute yard radius",
+        ]
+    )
     missing_capabilities: list[str] = field(
         default_factory=lambda: [
             "professional engineering design only",
@@ -190,11 +224,15 @@ class BusinessProfile:
             "business_type",
             "base_location",
             "service_area",
+            "crew_mix",
+            "insurance_coverage",
+            "estimating_capacity",
             "lane_basis",
         ):
             if payload.get(field_name):
                 setattr(profile, field_name, str(payload[field_name]))
         for field_name in (
+            "years_in_business",
             "team_size",
             "max_sites_per_day",
             "response_days_available",
@@ -208,12 +246,18 @@ class BusinessProfile:
                 setattr(profile, field_name, max(minimum, int(payload[field_name])))
         if payload.get("max_contract_value") is not None:
             profile.max_contract_value = max(0.0, float(payload["max_contract_value"]))
+        if payload.get("bonding_single_job_limit") is not None:
+            profile.bonding_single_job_limit = max(0.0, float(payload["bonding_single_job_limit"]))
         for field_name in (
             "top_divisions",
             "good_fit_examples",
             "bad_fit_examples",
             "skills",
             "ready_documents",
+            "certifications",
+            "owned_equipment",
+            "recent_municipal_work",
+            "bid_constraints",
             "missing_capabilities",
         ):
             if isinstance(payload.get(field_name), list):

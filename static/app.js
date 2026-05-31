@@ -24,6 +24,10 @@ const LOADING_PROFILE = {
   base_location: "Toronto",
   skills: [],
   ready_documents: [],
+  certifications: [],
+  owned_equipment: [],
+  recent_municipal_work: [],
+  bid_constraints: [],
   top_divisions: [],
   good_fit_examples: [],
   bad_fit_examples: []
@@ -456,11 +460,22 @@ function renderProfile(profile) {
   $("profileName").textContent = compactProfileLabel(active);
   $("profileType").textContent = titleCase(active.business_type || "Not listed");
   $("profileBase").textContent = active.base_location || active.service_area || "Not listed";
+  $("profileYears").textContent = active.years_in_business ? `${active.years_in_business} years` : "Not listed";
   $("profileTeam").textContent = active.team_size ? `${active.team_size} people` : "Not listed";
+  $("profileCrew").textContent = active.crew_mix || "Not listed";
   $("profileCapacity").textContent = profileCapacityText(active);
+  $("profileInsurance").textContent = active.insurance_coverage || "Not listed";
+  $("profileBonding").textContent = profileBondingText(active);
   $("profilePursuits").textContent = profilePursuitsText(active);
+  $("profileEstimating").textContent = active.estimating_capacity || "Not listed";
   renderTags($("profileSkills"), active.skills || []);
   renderTags($("profileDocs"), active.ready_documents || []);
+  renderTags($("profileAssets"), [
+    ...(active.owned_equipment || []),
+    ...(active.certifications || [])
+  ]);
+  renderTags($("profileRecentWork"), active.recent_municipal_work || []);
+  renderTags($("profileConstraints"), active.bid_constraints || []);
   renderProfileEvidence(active);
 }
 
@@ -2209,6 +2224,16 @@ function profileCapacityText(profile) {
     parts.push(`up to ${formatMoney(profile.max_contract_value)}`);
   }
   return parts.length ? parts.join(", ") : "Not listed";
+}
+
+function profileBondingText(profile) {
+  if (profile.bonding_single_job_limit === 0) {
+    return "Not needed for consulting profile";
+  }
+  if (profile.bonding_single_job_limit) {
+    return `single job up to ${formatMoney(profile.bonding_single_job_limit)}`;
+  }
+  return "Not listed";
 }
 
 function profilePursuitsText(profile) {

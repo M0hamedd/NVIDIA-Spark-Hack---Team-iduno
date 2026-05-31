@@ -23,6 +23,8 @@ class SupportedProfileTests(unittest.TestCase):
         self.assertEqual(profile.profile_id, "parks_landscape")
         self.assertEqual(profile.name, "Greenline Parks & Landscape Ltd.")
         self.assertIn("topsoil supply", profile.skills)
+        self.assertIn("ISA certified arborists", profile.certifications)
+        self.assertIn("watering trailers", profile.owned_equipment)
         self.assertEqual(profile.ytd_solicitation_hits, 42)
 
     def test_supported_profiles_cover_three_distinct_vendor_types(self) -> None:
@@ -37,6 +39,10 @@ class SupportedProfileTests(unittest.TestCase):
         self.assertTrue(any("engineering" in item for item in business_types))
         self.assertTrue(all("lane_basis" in profile for profile in profiles))
         self.assertTrue(all("exclusive_best_fit_hits" in profile for profile in profiles))
+        self.assertTrue(all(profile.get("years_in_business", 0) > 0 for profile in profiles))
+        self.assertTrue(all(profile.get("crew_mix") for profile in profiles))
+        self.assertTrue(all(profile.get("recent_municipal_work") for profile in profiles))
+        self.assertTrue(all(profile.get("bid_constraints") for profile in profiles))
 
 
 if __name__ == "__main__":

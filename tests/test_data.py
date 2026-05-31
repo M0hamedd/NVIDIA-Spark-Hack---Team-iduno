@@ -134,6 +134,10 @@ class ProcurementDataTests(unittest.TestCase):
         self.assertIn("bridge rehabilitation", profile.skills)
         self.assertIn("watermain construction", profile.skills)
         self.assertIn("bonding capacity", profile.ready_documents)
+        self.assertIn("Book 7 traffic control supervisors", profile.certifications)
+        self.assertIn("mini excavators", profile.owned_equipment)
+        self.assertIn("sidewalk bay replacements", profile.recent_municipal_work)
+        self.assertGreater(profile.bonding_single_job_limit, profile.max_contract_value)
         self.assertIn("pure software implementation", profile.missing_capabilities)
         self.assertEqual(profile.ytd_solicitation_hits, 45)
 
